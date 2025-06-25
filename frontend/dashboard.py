@@ -1,8 +1,4 @@
 import gradio as gr
-import requests
-import json
-import os
-from dashboard import create_dashboard_interface
 
 def format_currency(amount):
     return f"${amount:,.2f}"
@@ -174,133 +170,129 @@ def create_dashboard():
 
     return borrower_html, ratios_html, risk_html, decision_html
 
-def analyze_documents(files):
-    if not files:
-        return "Please upload at least one document.", "No files uploaded.", ""
+def create_dashboard_interface():
+    dashboard = gr.Blocks(
+        title="Agnetic Loan Application",
+        css="""
+            body {
+                background-color: #f3f4f6 !important;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            }
+            #dashboard-container {
+                max-width: 1200px;
+                margin: 0 auto;
+                padding: 20px;
+            }
+            .status-badge {
+                position: absolute;
+                top: 20px;
+                right: 20px;
+                background: #fef3c7;
+                color: #92400e;
+                padding: 8px 16px;
+                border-radius: 20px;
+                font-weight: 500;
+            }
+            h1 {
+                font-size: 2.25rem;
+                font-weight: 600;
+                margin-bottom: 0.5rem;
+                color: #111827;
+            }
+            h2 {
+                font-size: 1.5rem;
+                font-weight: 500;
+                color: #4b5563;
+                margin-bottom: 2rem;
+            }
+            .gradio-row {
+                gap: 1rem !important;
+            }
+            .gradio-html > div {
+                height: 100%;
+            }
+            .gradio-dropdown {
+                background: white !important;
+            }
+            .gradio-textbox {
+                background: white !important;
+            }
+            .gradio-button.primary {
+                background: #2563eb !important;
+                color: white !important;
+            }
+            .gradio-button.primary:hover {
+                background: #1d4ed8 !important;
+            }
+        """
+    )
     
-    try:
-        # Create a list of file tuples for the request
-        files_data = []
-        for file in files:
-            # Handle file path from Gradio
-            if isinstance(file, str):
-                with open(file, 'rb') as f:
-                    filename = os.path.basename(file)
-                    content = f.read()
-                    files_data.append(('files', (filename, content, 'application/pdf')))
-            else:
-                # Fallback for other file types
-                files_data.append(('files', (file.name, file, 'application/pdf')))
-        
-        # First, get text extraction results
-        response = requests.post(
-            "http://localhost:8000/analyze",
-            files=files_data
-        )
-        
-        if response.status_code == 200:
-            text_result = response.json()
-            
-            # Format the text extraction output
-            text_output = "### Text Extraction Results:\n"
-            text_output += f"Total Characters: {text_result['text_summary']['total_characters']}\n\n"
-            
-            for file_info in text_result['text_summary']['files']:
-                text_output += f"**File: {file_info['file_name']}**\n"
-                text_output += f"Characters: {file_info['characters']}\n"
-                text_output += "Preview:\n```\n"
-                text_output += file_info['preview']
-                text_output += "\n```\n\n"
-            
-            # Now proceed with complete analysis
-            response = requests.post(
-                "http://localhost:8000/analyze/complete",
-                files=files_data
+    with dashboard:
+        with gr.Column(elem_id="dashboard-container"):
+            gr.Markdown(
+                """
+                # Agnetic Loan Application
+                ## Application Review Dashboard
+                """
             )
             
-            if response.status_code == 200:
-                result = response.json()
-                
-                # Format the analysis output
-                analysis_output = "### Financial Analysis Results\n\n"
-                analysis_output += "#### Financial Ratios:\n"
-                for metric, value in result["ratios"].items():
-                    analysis_output += f"- {metric}: {value}%\n"
-                
-                analysis_output += "\n#### Risk Assessment:\n"
-                for metric, assessment in result["risk_profile"].items():
-                    analysis_output += f"- {metric}: {assessment}\n"
-                    
-                # Create a summary for the status
-                status_output = "✅ Analysis Complete"
-                    
-                return analysis_output, text_output, status_output
-            else:
-                return f"Error in financial analysis: {response.text}", text_output, "❌ Analysis Failed"
-        else:
-            return f"Error: {response.text}", "Error processing files.", "❌ Analysis Failed"
+            gr.Markdown(
+                """
+                <div class="status-badge">Under Review</div>
+                """,
+                elem_classes=["status-container"]
+            )
             
-    except Exception as e:
-        return f"Error processing files: {str(e)}", "Error occurred during processing.", "❌ Analysis Failed"
-
-def create_upload_interface():
-    upload = gr.Blocks(title="Document Upload")
-    
-    with upload:
-        gr.Markdown(
-            """
-            # 🏠 Mortgage Risk Analysis
-            Upload financial documents (PDF format) for comprehensive risk analysis.
-            """
-        )
-        
-        with gr.Row():
-            # Left column for document upload and analysis
-            with gr.Column(scale=1):
-                with gr.Row():
-                    # Left side - Upload Documents
-                    with gr.Column(scale=1):
-                        with gr.Group():
-                            gr.Markdown("### 📄 Upload Documents")
-                            file_input = gr.File(
-                                file_count="multiple",
-                                file_types=[".pdf"],
-                                label="Upload Documents",
-                                type="filepath"
-                            )
-                            analyze_btn = gr.Button("📊 Analyze Documents", variant="primary")
-                            status_output = gr.Markdown()
-                    
-                    # Right side - Analysis Results
-                    with gr.Column(scale=1):
-                        with gr.Group():
-                            gr.Markdown("### 💹 Analysis Results")
-                            analysis_output = gr.Markdown()
+            with gr.Row(equal_height=True):
+                borrower_html = gr.HTML()
+                ratios_html = gr.HTML()
+                risk_html = gr.HTML()
+                
+            decision_html = gr.HTML()
             
-            # Right column for text extraction
-            with gr.Column(scale=1):
-                gr.Markdown("### 📝 Extracted Text")
-                text_output = gr.Markdown()
-        
-        analyze_btn.click(
-            fn=analyze_documents,
-            inputs=[file_input],
-            outputs=[analysis_output, text_output, status_output]
-        )
+            # Add Request Section
+            with gr.Row():
+                with gr.Column():
+                    gr.Markdown("### 📝 New Request")
+                    with gr.Row():
+                        request_type = gr.Dropdown(
+                            choices=["bank_statements", "employment", "income", "custom"],
+                            value="bank_statements",
+                            label="Request Type",
+                            type="value"
+                        )
+                        custom_message = gr.Textbox(
+                            label="Custom Message",
+                            placeholder="Enter your custom request message here...",
+                            visible=False
+                        )
+                    
+                    submit_btn = gr.Button("📤 Submit Request", variant="primary")
+                    request_status = gr.Markdown()
+                    
+                    def update_custom_message_visibility(request_type):
+                        return {"visible": request_type == "custom"}
+                    
+                    request_type.change(
+                        fn=update_custom_message_visibility,
+                        inputs=[request_type],
+                        outputs=[custom_message]
+                    )
+                    
+                    submit_btn.click(
+                        fn=submit_request,
+                        inputs=[request_type, custom_message],
+                        outputs=[request_status]
+                    )
+            
+            # Update the dashboard on page load
+            dashboard.load(
+                fn=create_dashboard,
+                outputs=[borrower_html, ratios_html, risk_html, decision_html]
+            )
     
-    return upload
-
-# Create the main application with routes
-app = gr.TabbedInterface(
-    [create_upload_interface(), create_dashboard_interface()],
-    ["Upload", "Dashboard"],
-    title="Agnetic Loan Application",
-    css="""
-        body {
-            background-color: #f3f4f6 !important;
-        }
-    """
-)
+    return dashboard
 
 if __name__ == "__main__":
-    app.launch()
+    demo = create_dashboard_interface()
+    demo.launch() 
