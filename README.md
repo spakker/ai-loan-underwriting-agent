@@ -13,7 +13,7 @@ This application provides mortgage risk analysis by processing financial documen
 1. **Clone the repository**
    ```bash
    git clone <repository-url>
-   cd mortgage_risk_gradio_repo
+   cd ai-loan-underwriting-agent
    ```
 
 2. **Create and activate virtual environment**
@@ -49,7 +49,7 @@ This application provides mortgage risk analysis by processing financial documen
    Open a terminal and run:
    ```bash
    cd backend
-   python main.py
+   uvicorn main:app --reload
    ```
    The backend server will start at `http://localhost:8000`
 
@@ -68,18 +68,41 @@ This application provides mortgage risk analysis by processing financial documen
 2. Upload PDF documents containing financial information
 3. Click "Analyze Documents" to process the files
 4. View results in three sections:
-   - Upload Documents: For file upload and analysis initiation
-   - Analysis Results: Shows financial ratios and risk assessment
+   - Financial Analysis: Shows financial ratios and risk assessment
    - Extracted Text: Displays the processed text from documents
+   - Status: Indicates analysis progress and completion
 
 ## 🔍 Features
 
-- PDF document processing and validation
-- Financial data extraction using GPT-4
-- Key financial metrics calculation (DTI, LTV, Credit Utilization)
-- Risk assessment with color-coded indicators
-- Detailed text extraction view
-- Error handling and status indicators
+### Document Processing
+- PDF document validation and text extraction
+- Support for multiple document uploads
+- Detailed text extraction preview
+
+### Financial Analysis
+- Automated data extraction using GPT-4
+- Key financial metrics calculation:
+  - Gross Debt-to-Income (DTI) Ratio
+  - Back-End DTI Ratio
+  - Loan-to-Value (LTV) Ratio
+  - Credit Utilization Rate
+  - Savings-to-Income Ratio
+  - Net Worth-to-Income Ratio
+
+### Risk Assessment
+- Color-coded risk indicators (✅ Low Risk, ⚠️ High Risk)
+- Automated risk profiling based on industry standards:
+  - DTI ≤ 28%: Low Risk
+  - Back-End DTI ≤ 36%: Low Risk
+  - LTV ≤ 80%: Low Risk
+  - Credit Utilization ≤ 30%: Low Risk
+  - Savings ≥ 10% of Income: Good
+  - Net Worth ≥ 50% of Income: Strong
+
+### Error Handling
+- Comprehensive PDF validation
+- Detailed error messages
+- Graceful failure handling
 
 ## ⚠️ Troubleshooting
 
@@ -89,8 +112,10 @@ This application provides mortgage risk analysis by processing financial documen
 - Make sure all dependencies are installed correctly
 - Check that uploaded files are in PDF format
 
-## 📝 Note
+## 📝 Notes
 
 - The application requires a valid OpenAI API key for the GPT-4 integration
-- Ensure uploaded documents are in PDF format
-- Large PDF files may take longer to process 
+- Only PDF documents are supported
+- Large PDF files may take longer to process
+- The application uses industry-standard metrics for risk assessment
+- All financial calculations are performed with proper validation to prevent errors 
