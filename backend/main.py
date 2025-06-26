@@ -217,44 +217,61 @@ def analyze_with_llm(text: str) -> Dict:
         logger.info("Starting LLM analysis")
         
         # Create the prompt template
-        prompt = ChatPromptTemplate.from_template("""You are a financial data extraction expert. Extract financial information from the following document and return ONLY a JSON object with numerical values.
+        prompt = ChatPromptTemplate.from_template("""
+You are a mortgage underwriting specialist extracting financial data for home loan approval.  
 
-Document text:
+DOCUMENT TEXT:
 {text}
 
-Instructions:
-1. Extract these EXACT values (all must be numbers, no text or special characters):
-   - gross_annual_income (annual income before taxes)
-   - monthly_net_income (monthly income after taxes)
-   - monthly_housing_expense (total monthly housing costs)
-   - monthly_total_debt (total monthly debt payments)
-   - savings (total savings/assets)
-   - credit_used (current credit usage)
-   - credit_limit (total credit limit)
-   - loan_amount (mortgage amount requested)
-   - property_value (value of the property)
+EXTRACTION RULES:
+Extract the following 11 values as numbers or text (as specified):
+1. employment_title: Borrower's job title or occupation (e.g., Software Engineer, Nurse, Manager)
+2. employer_name: Name of the borrower's current employer or company
+3. gross_annual_income: Borrower total annual income BEFORE taxes (multiply bi-weekly pay by 26 or monthly by 12)
+4. monthly_net_income: Monthly take-home pay AFTER taxes and deductions
+5. monthly_housing_expense: NEW mortgage payment including Principal, Interest, Taxes, Insurance, PMI (NOT current rent)
+6. monthly_total_debt: ALL monthly debt payments (new mortgage + credit cards + student loans + car loans)
+7. savings: Total liquid assets available (checking + savings account balances)
+8. credit_used: Current total credit card balances owed
+9. credit_limit: Total credit card limits available
+10. loan_amount: Requested mortgage loan amount (purchase price minus down payment)
+11. property_value: Property purchase price or appraised value
 
-2. Important Rules:
-   - ALL values must be NUMBERS ONLY (no currency symbols, commas, or text)
-   - If a value is not found, use reasonable estimates based on other values
-   - ALL fields are REQUIRED
-   - ALL values must be POSITIVE numbers
-   - Use ANNUAL values for annual fields and MONTHLY values for monthly fields
-   - Round numbers to nearest whole number
-   - Do not include any explanations or notes, just the JSON
+CRITICAL INSTRUCTIONS:
+- Use GROSS annual income (before taxes) for income calculations
+- Use NEW mortgage payment (Principal+Interest+Taxes+Insurance+PMI) NOT current rent for housing_expense
+- Include ALL debt payments (mortgage + existing debt) for monthly_total_debt
+- If bi-weekly pay is given, multiply by 26 for annual income
+- If property details show "Total Monthly Housing Payment" or "PITI", use that number
+- Look for mortgage calculations like "Principal & Interest: $X" plus taxes and insurance
 
-Example format:
+CALCULATION EXAMPLES:
+- If bi-weekly gross pay = $3,170 → gross_annual_income = 82420 (3170 × 26)
+- If new mortgage payment = $3,021 + taxes $506 + insurance $162 + PMI $307 → monthly_housing_expense = 3996
+- If new housing payment = $3,996 AND existing debt = $836 → monthly_total_debt = 4832
+
+VALIDATION CHECKS:
+- monthly_housing_expense should be MUCH HIGHER than current rent (new mortgage vs old rent)
+- monthly_total_debt should include monthly_housing_expense plus other debt
+- gross_annual_income should be 12-15x monthly_net_income (due to taxes)
+
+Return ONLY the JSON object with these exact field names:
+
 {{
-    "gross_annual_income": 120000,
-    "monthly_net_income": 7500,
-    "monthly_housing_expense": 2500,
-    "monthly_total_debt": 3000,
-    "savings": 50000,
-    "credit_used": 15000,
-    "credit_limit": 50000,
-    "loan_amount": 400000,
-    "property_value": 500000
+  "employment_title": "[text]",
+  "employer_name": "[text]",
+  "gross_annual_income": [number],
+  "monthly_net_income": [number],
+  "monthly_housing_expense": [number],
+  "monthly_total_debt": [number],
+  "savings": [number],
+  "credit_used": [number],
+  "credit_limit": [number],
+  "loan_amount": [number],
+  "property_value": [number]
 }}
+
+NO explanations, NO additional text, ONLY the JSON object.
 """)
         
         # Create the LLM
@@ -295,43 +312,79 @@ Example format:
         raise HTTPException(status_code=500, detail=f"Error in AI analysis: {str(e)}")
 
 def calculate_risk_metrics(data: Dict) -> Tuple[Dict, Dict]:
-    """Calculate financial ratios and risk profile"""
+    """Calculate risk metrics from financial data"""
     try:
-        # Ensure we're working with float values
-        data = {k: float(v) for k, v in data.items()}
+        # Calculate DTI (Debt-to-Income) ratio
+        monthly_gross_income = data["gross_annual_income"] / 12
+        dti = (data["monthly_housing_expense"] / monthly_gross_income * 100) if monthly_gross_income > 0 else 100.0
+        
+        # Calculate Back-End DTI
+        back_end_dti = ((data["monthly_housing_expense"] + data["monthly_total_debt"]) / monthly_gross_income * 100) if monthly_gross_income > 0 else 100.0
+        
+        # Calculate LTV (Loan-to-Value) ratio
+        ltv = (data["loan_amount"] / data["property_value"] * 100) if data["property_value"] > 0 else 100.0
+        
+        # Calculate Credit Utilization
+        credit_utilization = (data["credit_used"] / data["credit_limit"] * 100) if data["credit_limit"] > 0 else 100.0
+        
+        # Calculate Savings to Income ratio
+        savings_to_income = (data["savings"] / data["gross_annual_income"] * 100) if data["gross_annual_income"] > 0 else 0.0
+        
+        # Calculate Net Worth to Income ratio
+        net_worth = data["savings"] - data["credit_used"] - data["loan_amount"]
+        net_worth_to_income = (net_worth / data["gross_annual_income"] * 100) if data["gross_annual_income"] > 0 else 0.0
         
         ratios = {
-            "Gross DTI (%)": round(100 * data["monthly_housing_expense"] / (data["gross_annual_income"] / 12), 2),
-            "Back-End DTI (%)": round(100 * data["monthly_total_debt"] / (data["gross_annual_income"] / 12), 2),
-            "LTV (%)": round(100 * data["loan_amount"] / data["property_value"], 2),
-            "Credit Utilization (%)": round(100 * data["credit_used"] / data["credit_limit"], 2),
-            "Savings-to-Income (%)": round(100 * data["savings"] / data["gross_annual_income"], 2),
-            "Net Worth-to-Income (%)": round(100 * data["savings"] / data["gross_annual_income"], 2),
+            "DTI": round(dti, 1),
+            "BackEndDTI": round(back_end_dti, 1),
+            "LTV": round(ltv, 1),
+            "CreditUtilization": round(credit_utilization, 1),
+            "SavingsToIncome": round(savings_to_income, 1),
+            "NetWorthToIncome": round(net_worth_to_income, 1)
         }
-        logger.info("Successfully calculated financial ratios")
-
-        def tag(metric, value):
-            if metric == "Gross DTI (%)":
-                return "✅ Low Risk" if value <= 28 else "⚠️ High Risk"
-            elif metric == "Back-End DTI (%)":
-                return "✅ Low Risk" if value <= 36 else "⚠️ High Risk"
-            elif metric == "LTV (%)":
-                return "✅ Low Risk" if value <= 80 else "⚠️ High Risk"
-            elif metric == "Credit Utilization (%)":
-                return "✅ Low Risk" if value <= 30 else "⚠️ High Risk"
-            elif metric == "Savings-to-Income (%)":
-                return "✅ Good" if value >= 10 else "⚠️ Low"
-            elif metric == "Net Worth-to-Income (%)":
-                return "✅ Strong" if value >= 50 else "⚠️ Weak"
-            return "❓ Unknown"
-
-        risk_profile = {metric: tag(metric, value) for metric, value in ratios.items()}
-        logger.info("Successfully generated risk profile")
+        
+        # Create risk profile
+        risk_profile = {
+            "employment_title": "Not Available",
+            "employer_name": "Not Available",
+            "gross_annual_income": data["gross_annual_income"],
+            "monthly_net_income": data["monthly_net_income"],
+            "risk_flags": []
+        }
+        
+        # Add risk flags based on standard thresholds
+        if dti > 43:
+            risk_profile["risk_flags"].append(f"DTI ratio ({dti:.1f}%) exceeds maximum threshold of 43%")
+        if back_end_dti > 36:
+            risk_profile["risk_flags"].append(f"Back-End DTI ({back_end_dti:.1f}%) exceeds recommended maximum of 36%")
+        if ltv > 80:
+            risk_profile["risk_flags"].append(f"LTV ratio ({ltv:.1f}%) exceeds standard maximum of 80%")
+        if credit_utilization > 30:
+            risk_profile["risk_flags"].append(f"Credit utilization ({credit_utilization:.1f}%) exceeds recommended 30%")
+        if savings_to_income < 10:
+            risk_profile["risk_flags"].append(f"Low savings relative to income ({savings_to_income:.1f}%)")
+        if net_worth_to_income < 0:
+            risk_profile["risk_flags"].append("Negative net worth relative to income")
         
         return ratios, risk_profile
+        
     except Exception as e:
         logger.error(f"Error calculating risk metrics: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error calculating financial metrics: {str(e)}")
+        # Return safe default values
+        return {
+            "DTI": 100.0,
+            "BackEndDTI": 100.0,
+            "LTV": 100.0,
+            "CreditUtilization": 100.0,
+            "SavingsToIncome": 0.0,
+            "NetWorthToIncome": 0.0
+        }, {
+            "employment_title": "Not Available",
+            "employer_name": "Not Available",
+            "gross_annual_income": 0,
+            "monthly_net_income": 0,
+            "risk_flags": ["Unable to calculate risk metrics"]
+        }
 
 @app.post("/analyze")
 async def analyze(files: List[UploadFile] = File(...)):
