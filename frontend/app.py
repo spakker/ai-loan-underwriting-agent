@@ -479,7 +479,7 @@ def create_app():
                                 label="Loan Application Documents",
                                 type="filepath"
                             )
-                            analyze_btn = gr.Button("📊 Analyze Documents", variant="primary")
+                            analyze_btn = gr.Button("📊 Analyze Application", variant="primary")
                             status_output = gr.Markdown()
                     
                     # Right column for text extraction
@@ -550,7 +550,10 @@ def create_app():
                     return [
                         text_output or "",
                         status_output or "",
-                        *dashboard_html,
+                        borrower_output,
+                        decision_output,
+                        ratios_output,
+                        risk_output,
                         dashboard_state,
                         decision_state
                     ]
@@ -595,13 +598,13 @@ def create_app():
                     # Risk Assessment in its own row
                     with gr.Row():
                         with gr.Column(scale=1):
-                            dashboard_risk = gr.HTML(visible=True, elem_id="risk-section")
+                            dashboard_decision = gr.HTML(visible=True, elem_id="decision-section")
                     
                     # Main sections row
                     with gr.Row(equal_height=True):
+                        dashboard_risk = gr.HTML(visible=True, elem_id="risk-section")
                         dashboard_borrower = gr.HTML(visible=True, elem_id="borrower-section")
                         dashboard_ratios = gr.HTML(visible=True, elem_id="ratios-section")
-                        dashboard_decision = gr.HTML(visible=True, elem_id="decision-section")
                     
                     # Initialize with empty state
                     from dashboard import create_empty_dashboard
@@ -621,10 +624,10 @@ def create_app():
                         fn=update_dashboard_from_state,
                         inputs=[dashboard_state, decision_state],
                         outputs=[
-                            dashboard_borrower,
-                            dashboard_ratios,
+                            dashboard_decision,
                             dashboard_risk,
-                            dashboard_decision
+                            dashboard_borrower,
+                            dashboard_ratios
                         ]
                     )
                     
@@ -632,10 +635,10 @@ def create_app():
                         fn=update_dashboard_from_state,
                         inputs=[dashboard_state, decision_state],
                         outputs=[
-                            dashboard_borrower,
-                            dashboard_ratios,
+                            dashboard_decision,
                             dashboard_risk,
-                            dashboard_decision
+                            dashboard_borrower,
+                            dashboard_ratios
                         ]
                     )
     

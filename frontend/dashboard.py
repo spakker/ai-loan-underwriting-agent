@@ -297,8 +297,8 @@ def update_dashboard(result, decision_result):
 
         print("\n=== Dashboard Update Completed ===")
         # Return order matches the element IDs in app.py:
-        # risk-section (top), borrower-section, ratios-section, decision-section
-        return risk_html, borrower_html, ratios_html, decision_html
+        # risk-section (top), borrower-section, decision-section, ratios-section
+        return decision_html,risk_html, borrower_html,ratios_html
         
     except Exception as e:
         print(f"Error in update_dashboard: {str(e)}")
