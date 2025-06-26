@@ -21,8 +21,8 @@ def format_ratio_value(ratio_type, value):
 def generate_borrower_summary(data):
     # Initialize the language model
     llm = ChatOpenAI(
-        model="gpt-4",
-        temperature=0.7,
+        model="gpt-4o",
+        temperature=0.1,
     )
     
     # Prepare the data for the prompt
@@ -176,23 +176,33 @@ def update_dashboard(result, decision_result):
         decision_type = decision_result.get('decision_type', 'Pending')
         print(f"Decision type: {decision_type}")
         decision_color = {
-            'Approve': '#22c55e',
-            'Deny': '#ef4444',
-            'Refer': '#eab308'
-        }.get(decision_type, '#6b7280')
+                'Approve': '#22c55e',           # Green - positive
+                'Conditionally Approve': '#f59e0b',  # Amber - cautious optimism
+                'Refer': '#eab308',             # Yellow - neutral review needed
+                'Deny': '#ef4444'              # Red - negative
+                }.get(decision_type, '#6b7280')     # Gray - fallback
         
+        empathetic_message = decision_result.get('empathetic_message', 'Decision pending...')
+        recommendations = decision_result.get('recommendations', [])
+        
+        recommendations_html = ""
+        if recommendations:
+            rec_list_items = "".join(f"<li>{item}</li>" for item in recommendations)
+            recommendations_html = f"<ul>{rec_list_items}</ul>"
+
         decision_html = f"""
         <div style="background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 25px; width: 100%;">
             <div style="display: flex; justify-content: space-between; align-items: center;">
                 <h3 style="display: flex; align-items: center; gap: 10px; margin: 0;">
-                    <span style="font-size: 1.2em;">✅</span> Loan Decision
+                    Loan Decision
                 </h3>
                 <div style="display: inline-block; background: {decision_color}; padding: 4px 12px; border-radius: 4px; color: white; font-size: 1.1em;">
                     {decision_type}
                 </div>
             </div>
             <div style="background: #fffbeb; border-radius: 8px; padding: 20px; margin-top: 15px;">
-                <div style="color: #92400e; font-size: 1.1em;">{decision_result.get('loan_decision_summary', 'Decision pending...')}</div>
+                <div style="color: #92400e; font-size: 1.1em; margin-bottom: 10px;">{empathetic_message}</div>
+                <div style="color: #92400e; font-size: 1.0em;">{recommendations_html}</div>
             </div>
         </div>
         """
@@ -203,7 +213,7 @@ def update_dashboard(result, decision_result):
         borrower_html = f"""
         <div style="background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
             <h3 style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
-                <span style="font-size: 1.2em;">👤</span> Borrower Summary
+                Borrower Summary
             </h3>
             <div style="margin-top: 15px;">
                 <div style="margin-bottom: 12px; display: flex; justify-content: space-between;">
@@ -281,7 +291,7 @@ def update_dashboard(result, decision_result):
         ratios_html = f"""
         <div style="background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
             <h3 style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
-                <span style="font-size: 1.2em;">📊</span> Financial Ratios
+                Financial Ratios
             </h3>
             <div style="margin-top: 15px;">
                 {''.join(ratio_elements)}
@@ -292,17 +302,28 @@ def update_dashboard(result, decision_result):
 
         # Risk Assessment Section (for risk-section)
         print("\nGenerating Risk Assessment")
-        risk_flags = decision_result.get('risk_assessment', [])
+        risk_flags = decision_result.get('risk_assessment', {})
         print(f"Working with risk flags: {risk_flags}")
+
+        risk_items_html = []
+        if isinstance(risk_flags, dict):
+            for key, value in risk_flags.items():
+                # Reformat the key to be more human-readable
+                display_key = key.replace('_', ' ').replace(' percent', ' (%)').title()
+                risk_items_html.append(f'<li>{display_key}: {value}</li>')
+        elif isinstance(risk_flags, list): # Fallback for old list format
+             for risk in risk_flags:
+                risk_items_html.append(f'<li>{risk}</li>')
+
         risk_html = f"""
         <div style="background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
             <h3 style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
-                <span style="font-size: 1.2em;">⚠️</span> Risk Assessment
+                Risk Assessment
             </h3>
             <div style="background: #fef2f2; border-radius: 8px; padding: 15px; margin-top: 15px;">
                 <div style="color: #dc2626; margin-bottom: 10px;">Risk Flags Identified:</div>
                 <ul style="color: #dc2626; margin: 0; padding-left: 20px;">
-                    {chr(10).join(f'<li>{risk}</li>' for risk in risk_flags) if risk_flags else '<li>No risk flags identified</li>'}
+                    {''.join(risk_items_html) if risk_items_html else '<li>No risk flags identified</li>'}
                 </ul>
             </div>
         </div>
