@@ -399,33 +399,23 @@ def create_upload_interface():
     with upload:
         gr.Markdown(
             """
-            # 🏠 Mortgage Risk Analysis
-            Upload financial documents (PDF format) for comprehensive risk analysis.
+            Upload financial documents (PDF format) for underwriter review and comprehensive risk analysis.
             """
         )
         
         with gr.Row():
-            # Left column for document upload and analysis
+            # Left column for document upload
             with gr.Column(scale=1):
-                with gr.Row():
-                    # Left side - Upload Documents
-                    with gr.Column(scale=1):
-                        with gr.Group():
-                            gr.Markdown("### 📄 Upload Documents")
-                            file_input = gr.File(
-                                file_count="multiple",
-                                file_types=[".pdf"],
-                                label="Upload Documents",
-                                type="filepath"
-                            )
-                            analyze_btn = gr.Button("📊 Analyze Documents", variant="primary")
-                            status_output = gr.Markdown()
-                    
-                    # Right side - Analysis Results
-                    with gr.Column(scale=1):
-                        with gr.Group():
-                            gr.Markdown("### 💹 Analysis Results")
-                            analysis_output = gr.Markdown()
+                with gr.Group():
+                    gr.Markdown("### 📄 Upload Documents")
+                    file_input = gr.File(
+                        file_count="multiple",
+                        file_types=[".pdf"],
+                        label="Upload Documents",
+                        type="filepath"
+                    )
+                    analyze_btn = gr.Button("📊 Analyze Documents", variant="primary")
+                    status_output = gr.Markdown()
             
             # Right column for text extraction
             with gr.Column(scale=1):
@@ -442,7 +432,6 @@ def create_upload_interface():
             fn=process_analysis,
             inputs=[file_input],
             outputs=[
-                analysis_output,
                 text_output,
                 status_output,
                 borrower_output,
@@ -466,38 +455,68 @@ def create_app():
                 # Create upload interface components
                 gr.Markdown(
                     """
-                    # 🏠 Mortgage Risk Analysis
-                    Upload financial documents (PDF format) for comprehensive risk analysis.
-                    """
+                    Upload financial documents (PDF format) for underwriter review and comprehensive risk analysis.
+                    """,
+                    elem_classes=["header-text"]
                 )
                 
                 with gr.Row():
-                    # Left column for document upload and analysis
+                    # Left column for document upload
                     with gr.Column(scale=1):
-                        with gr.Row():
-                            # Left side - Upload Documents
-                            with gr.Column(scale=1):
-                                with gr.Group():
-                                    gr.Markdown("### 📄 Upload Documents")
-                                    file_input = gr.File(
-                                        file_count="multiple",
-                                        file_types=[".pdf"],
-                                        label="Upload Documents",
-                                        type="filepath"
-                                    )
-                                    analyze_btn = gr.Button("📊 Analyze Documents", variant="primary")
-                                    status_output = gr.Markdown()
-                            
-                            # Right side - Analysis Results
-                            with gr.Column(scale=1):
-                                with gr.Group():
-                                    gr.Markdown("### 💹 Analysis Results")
-                                    analysis_output = gr.Markdown()
+                        gr.HTML("""
+                            <div class="custom-box">
+                                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
+                                    <span style="font-size: 1.2em;">📄</span>
+                                    <h3 style="margin: 0; color: #2B3674;">Upload Documents</h3>
+                                </div>
+                            </div>
+                        """)
+                        with gr.Group(elem_classes=["custom-box-content"]):
+                            file_input = gr.File(
+                                file_count="multiple",
+                                file_types=[".pdf"],
+                                label="Upload Documents",
+                                type="filepath"
+                            )
+                            analyze_btn = gr.Button("📊 Analyze Documents", variant="primary")
+                            status_output = gr.Markdown()
                     
                     # Right column for text extraction
                     with gr.Column(scale=1):
-                        gr.Markdown("### 📝 Extracted Text")
-                        text_output = gr.Markdown()
+                        gr.HTML("""
+                            <div class="custom-box">
+                                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
+                                    <span style="font-size: 1.2em;">📝</span>
+                                    <h3 style="margin: 0; color: #2B3674;">Extracted Text</h3>
+                                </div>
+                            </div>
+                        """)
+                        with gr.Group(elem_classes=["custom-box-content"]):
+                            text_output = gr.Markdown()
+                
+                # Add custom CSS
+                gr.HTML("""
+                    <style>
+                    .header-text {
+                        margin: 20px 0;
+                        color: #2B3674;
+                        font-size: 1.1em;
+                    }
+                    .custom-box {
+                        background: white;
+                        padding: 20px;
+                        border-radius: 10px 10px 0 0;
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                    }
+                    .custom-box-content {
+                        background: white;
+                        padding: 20px;
+                        border-radius: 0 0 10px 10px;
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                        margin-top: -10px;
+                    }
+                    </style>
+                """)
                 
                 # Components to update the dashboard
                 borrower_output = gr.HTML(visible=False)
@@ -510,7 +529,6 @@ def create_app():
                     output = analyze_documents(files)
                     
                     # Unpack values
-                    analysis_output = output[0] if len(output) > 0 else None
                     text_output = output[1] if len(output) > 1 else None
                     status_output = output[2] if len(output) > 2 else None
                     result = output[3] if len(output) > 3 else {}
@@ -529,7 +547,6 @@ def create_app():
                         dashboard_html = create_empty_dashboard()
                     
                     return [
-                        analysis_output or "",
                         text_output or "",
                         status_output or "",
                         *dashboard_html,
@@ -546,7 +563,6 @@ def create_app():
                         decision_state
                     ],
                     outputs=[
-                        analysis_output,
                         text_output,
                         status_output,
                         borrower_output,
@@ -564,7 +580,7 @@ def create_app():
                     gr.Markdown(
                         """
                       
-                        ## Application Review Dashboard
+                        ## Underwriter Risk Dashboard
                         """
                     )
                     
@@ -575,12 +591,16 @@ def create_app():
                         elem_classes=["status-container"]
                     )
                     
+                    # Risk Assessment in its own row
+                    with gr.Row():
+                        with gr.Column(scale=1):
+                            dashboard_risk = gr.HTML(visible=True, elem_id="risk-section")
+                    
+                    # Main sections row
                     with gr.Row(equal_height=True):
                         dashboard_borrower = gr.HTML(visible=True, elem_id="borrower-section")
                         dashboard_ratios = gr.HTML(visible=True, elem_id="ratios-section")
-                        dashboard_risk = gr.HTML(visible=True, elem_id="risk-section")
-                    
-                    dashboard_decision = gr.HTML(visible=True, elem_id="decision-section")
+                        dashboard_decision = gr.HTML(visible=True, elem_id="decision-section")
                     
                     # Initialize with empty state
                     from dashboard import create_empty_dashboard

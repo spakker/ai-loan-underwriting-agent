@@ -137,18 +137,14 @@ def update_financial_ratios(computed_ratios=None):
     return ratios_html
 
 def create_empty_dashboard():
-    print("\n=== Creating Empty Dashboard ===")
     empty_html = """
     <div style="background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-        <div style="text-align: center; padding: 20px; color: #6b7280;">
-            <p>Awaiting document analysis...</p>
+        <div style="color: #6b7280; text-align: center;">
+            Awaiting document analysis...
         </div>
     </div>
     """
-    # Return empty HTML for all four components
-    components = [empty_html] * 4
-    print(f"Created {len(components)} empty dashboard components")
-    return components
+    return empty_html, empty_html, empty_html, empty_html
 
 def update_dashboard(result, decision_result):
     print("\n=== Dashboard Update Started ===")
@@ -171,8 +167,35 @@ def update_dashboard(result, decision_result):
         print(f"Employment: {employment_title} at {employer_name}")
         print(f"Income: ${gross_annual_income:,.2f} annual, ${monthly_net_income:,.2f} monthly")
         print(f"Ratios: {ratios}")
+
+        # Loan Decision Section (for decision-section)
+        print("\nGenerating Loan Decision")
+        decision_type = decision_result.get('decision_type', 'Pending')
+        print(f"Decision type: {decision_type}")
+        decision_color = {
+            'Approve': '#22c55e',
+            'Deny': '#ef4444',
+            'Refer': '#eab308'
+        }.get(decision_type, '#6b7280')
         
-        # Borrower Summary Section
+        decision_html = f"""
+        <div style="background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 25px; width: 100%;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h3 style="display: flex; align-items: center; gap: 10px; margin: 0;">
+                    <span style="font-size: 1.2em;">✅</span> Loan Decision
+                </h3>
+                <div style="display: inline-block; background: {decision_color}; padding: 4px 12px; border-radius: 4px; color: white; font-size: 1.1em;">
+                    {decision_type}
+                </div>
+            </div>
+            <div style="background: #fffbeb; border-radius: 8px; padding: 20px; margin-top: 15px;">
+                <div style="color: #92400e; font-size: 1.1em;">{decision_result.get('loan_decision_summary', 'Decision pending...')}</div>
+            </div>
+        </div>
+        """
+        print("Loan Decision generated")
+        
+        # Borrower Summary Section (for borrower-section)
         print("\nGenerating Borrower Summary")
         borrower_html = f"""
         <div style="background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
@@ -204,7 +227,7 @@ def update_dashboard(result, decision_result):
         """
         print("Borrower Summary generated")
 
-        # Financial Ratios Section
+        # Financial Ratios Section (for ratios-section)
         print("\nGenerating Financial Ratios")
         print(f"Working with ratios: {ratios}")
         
@@ -264,7 +287,7 @@ def update_dashboard(result, decision_result):
         """
         print("Financial Ratios generated")
 
-        # Risk Assessment Section
+        # Risk Assessment Section (for risk-section)
         print("\nGenerating Risk Assessment")
         risk_flags = decision_result.get('risk_assessment', [])
         print(f"Working with risk flags: {risk_flags}")
@@ -283,33 +306,10 @@ def update_dashboard(result, decision_result):
         """
         print("Risk Assessment generated")
 
-        # Loan Decision Section
-        print("\nGenerating Loan Decision")
-        decision_type = decision_result.get('decision_type', 'Pending')
-        print(f"Decision type: {decision_type}")
-        decision_color = {
-            'Approve': '#22c55e',
-            'Deny': '#ef4444',
-            'Refer': '#eab308'
-        }.get(decision_type, '#6b7280')
-        
-        decision_html = f"""
-        <div style="background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-top: 20px;">
-            <h3 style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
-                <span style="font-size: 1.2em;">✅</span> Loan Decision
-            </h3>
-            <div style="background: #fffbeb; border-radius: 8px; padding: 15px; margin-bottom: 15px;">
-                <div style="display: inline-block; background: {decision_color}; padding: 4px 8px; border-radius: 4px; font-size: 0.9em; color: white;">
-                    {decision_type}
-                </div>
-                <div style="margin-top: 10px; color: #92400e;">{decision_result.get('loan_decision_summary', 'Decision pending...')}</div>
-            </div>
-        </div>
-        """
-        print("Loan Decision generated")
-
         print("\n=== Dashboard Update Completed ===")
-        return borrower_html, ratios_html, risk_html, decision_html
+        # Return order matches the element IDs in app.py:
+        # risk-section (top), borrower-section, ratios-section, decision-section
+        return risk_html, borrower_html, ratios_html, decision_html
         
     except Exception as e:
         print(f"Error in update_dashboard: {str(e)}")
