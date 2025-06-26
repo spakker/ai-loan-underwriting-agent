@@ -50,8 +50,8 @@ def get_loan_application_data():
 def get_loan_decision(result):
     # Initialize the language model
     llm = ChatOpenAI(
-        model="gpt-3.5-turbo",
-        temperature=0.7,
+        model="gpt-4",
+        temperature=0,
     )
     
     # Prepare the data for the prompt
@@ -399,22 +399,23 @@ def create_upload_interface():
     with upload:
         gr.Markdown(
             """
-            Upload financial documents (PDF format) for underwriter review and comprehensive risk analysis.
-            """
+            Upload loan application (PDF format) for underwriter review and comprehensive risk analysis.
+            """,
+            elem_classes=["header-text"]
         )
         
         with gr.Row():
             # Left column for document upload
             with gr.Column(scale=1):
                 with gr.Group():
-                    gr.Markdown("### 📄 Upload Documents")
+                    gr.Markdown("### 📄 Upload Loan Application")
                     file_input = gr.File(
                         file_count="multiple",
                         file_types=[".pdf"],
-                        label="Upload Documents",
+                        label="Upload Loan Application",
                         type="filepath"
                     )
-                    analyze_btn = gr.Button("📊 Analyze Documents", variant="primary")
+                    analyze_btn = gr.Button("📊 Analyze Loan Application", variant="primary")
                     status_output = gr.Markdown()
             
             # Right column for text extraction
@@ -455,7 +456,7 @@ def create_app():
                 # Create upload interface components
                 gr.Markdown(
                     """
-                    Upload financial documents (PDF format) for underwriter review and comprehensive risk analysis.
+                    Upload loan application documents (PDF format) for underwriter review and comprehensive risk analysis.
                     """,
                     elem_classes=["header-text"]
                 )
@@ -467,7 +468,7 @@ def create_app():
                             <div class="custom-box">
                                 <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
                                     <span style="font-size: 1.2em;">📄</span>
-                                    <h3 style="margin: 0; color: #2B3674;">Upload Documents</h3>
+                                    <h3 style="margin: 0; color: #2B3674;">Loan Application</h3>
                                 </div>
                             </div>
                         """)
@@ -475,7 +476,7 @@ def create_app():
                             file_input = gr.File(
                                 file_count="multiple",
                                 file_types=[".pdf"],
-                                label="Upload Documents",
+                                label="Loan Application Documents",
                                 type="filepath"
                             )
                             analyze_btn = gr.Button("📊 Analyze Documents", variant="primary")
@@ -586,7 +587,7 @@ def create_app():
                     
                     status_badge = gr.Markdown(
                         """
-                        <div class="status-badge">Awaiting Documents</div>
+                        <div class="status-badge">Awaiting Loan Application</div>
                         """,
                         elem_classes=["status-container"]
                     )

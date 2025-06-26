@@ -36,8 +36,6 @@ Use the following guidance for decision classification:
 - **Refer**: Mixed signals, borderline ratios, or missing information that requires human review
 
 Borrower Data:
-- Employment Title: {employment_title}
-- Employer Name: {employer_name}
 - Gross Annual Income: {gross_annual_income}
 - Monthly Net Income: {monthly_net_income}
 - Monthly Housing Expense: {monthly_housing_expense}

@@ -18,7 +18,7 @@ def format_ratio_value(ratio_type, value):
 def generate_borrower_summary(data):
     # Initialize the language model
     llm = ChatOpenAI(
-        model="gpt-3.5-turbo",
+        model="gpt-4",
         temperature=0.7,
     )
     
@@ -203,17 +203,6 @@ def update_dashboard(result, decision_result):
                 <span style="font-size: 1.2em;">👤</span> Borrower Summary
             </h3>
             <div style="margin-top: 15px;">
-                <div style="margin-bottom: 12px; display: flex; justify-content: space-between;">
-                    <span style="color: #666;">Employment Title</span>
-                    <span>{employment_title}</span>
-                </div>
-                <div style="margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
-                    <span style="color: #666;">Employer</span>
-                    <span style="display: flex; align-items: center;">
-                        <span style="margin-right: 5px;">📋</span>
-                        {employer_name}
-                    </span>
-                </div>
                 <div style="margin-bottom: 12px; display: flex; justify-content: space-between;">
                     <span style="color: #666;">Annual Income</span>
                     <span>${gross_annual_income:,.2f}</span>

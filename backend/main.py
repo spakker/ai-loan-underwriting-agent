@@ -217,44 +217,61 @@ def analyze_with_llm(text: str) -> Dict:
         logger.info("Starting LLM analysis")
         
         # Create the prompt template
-        prompt = ChatPromptTemplate.from_template("""You are a financial data extraction expert. Extract financial information from the following document and return ONLY a JSON object with numerical values.
+        prompt = ChatPromptTemplate.from_template("""
+You are a mortgage underwriting specialist extracting financial data for home loan approval.  
 
-Document text:
+DOCUMENT TEXT:
 {text}
 
-Instructions:
-1. Extract these EXACT values (all must be numbers, no text or special characters):
-   - gross_annual_income (annual income before taxes)
-   - monthly_net_income (monthly income after taxes)
-   - monthly_housing_expense (total monthly housing costs)
-   - monthly_total_debt (total monthly debt payments)
-   - savings (total savings/assets)
-   - credit_used (current credit usage)
-   - credit_limit (total credit limit)
-   - loan_amount (mortgage amount requested)
-   - property_value (value of the property)
+EXTRACTION RULES:
+Extract the following 11 values as numbers or text (as specified):
+1. employment_title: Borrower's job title or occupation (e.g., Software Engineer, Nurse, Manager)
+2. employer_name: Name of the borrower's current employer or company
+3. gross_annual_income: Borrower total annual income BEFORE taxes (multiply bi-weekly pay by 26 or monthly by 12)
+4. monthly_net_income: Monthly take-home pay AFTER taxes and deductions
+5. monthly_housing_expense: NEW mortgage payment including Principal, Interest, Taxes, Insurance, PMI (NOT current rent)
+6. monthly_total_debt: ALL monthly debt payments (new mortgage + credit cards + student loans + car loans)
+7. savings: Total liquid assets available (checking + savings account balances)
+8. credit_used: Current total credit card balances owed
+9. credit_limit: Total credit card limits available
+10. loan_amount: Requested mortgage loan amount (purchase price minus down payment)
+11. property_value: Property purchase price or appraised value
 
-2. Important Rules:
-   - ALL values must be NUMBERS ONLY (no currency symbols, commas, or text)
-   - If a value is not found, use reasonable estimates based on other values
-   - ALL fields are REQUIRED
-   - ALL values must be POSITIVE numbers
-   - Use ANNUAL values for annual fields and MONTHLY values for monthly fields
-   - Round numbers to nearest whole number
-   - Do not include any explanations or notes, just the JSON
+CRITICAL INSTRUCTIONS:
+- Use GROSS annual income (before taxes) for income calculations
+- Use NEW mortgage payment (Principal+Interest+Taxes+Insurance+PMI) NOT current rent for housing_expense
+- Include ALL debt payments (mortgage + existing debt) for monthly_total_debt
+- If bi-weekly pay is given, multiply by 26 for annual income
+- If property details show "Total Monthly Housing Payment" or "PITI", use that number
+- Look for mortgage calculations like "Principal & Interest: $X" plus taxes and insurance
 
-Example format:
+CALCULATION EXAMPLES:
+- If bi-weekly gross pay = $3,170 → gross_annual_income = 82420 (3170 × 26)
+- If new mortgage payment = $3,021 + taxes $506 + insurance $162 + PMI $307 → monthly_housing_expense = 3996
+- If new housing payment = $3,996 AND existing debt = $836 → monthly_total_debt = 4832
+
+VALIDATION CHECKS:
+- monthly_housing_expense should be MUCH HIGHER than current rent (new mortgage vs old rent)
+- monthly_total_debt should include monthly_housing_expense plus other debt
+- gross_annual_income should be 12-15x monthly_net_income (due to taxes)
+
+Return ONLY the JSON object with these exact field names:
+
 {{
-    "gross_annual_income": 120000,
-    "monthly_net_income": 7500,
-    "monthly_housing_expense": 2500,
-    "monthly_total_debt": 3000,
-    "savings": 50000,
-    "credit_used": 15000,
-    "credit_limit": 50000,
-    "loan_amount": 400000,
-    "property_value": 500000
+  "employment_title": "[text]",
+  "employer_name": "[text]",
+  "gross_annual_income": [number],
+  "monthly_net_income": [number],
+  "monthly_housing_expense": [number],
+  "monthly_total_debt": [number],
+  "savings": [number],
+  "credit_used": [number],
+  "credit_limit": [number],
+  "loan_amount": [number],
+  "property_value": [number]
 }}
+
+NO explanations, NO additional text, ONLY the JSON object.
 """)
         
         # Create the LLM
