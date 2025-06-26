@@ -295,43 +295,79 @@ Example format:
         raise HTTPException(status_code=500, detail=f"Error in AI analysis: {str(e)}")
 
 def calculate_risk_metrics(data: Dict) -> Tuple[Dict, Dict]:
-    """Calculate financial ratios and risk profile"""
+    """Calculate risk metrics from financial data"""
     try:
-        # Ensure we're working with float values
-        data = {k: float(v) for k, v in data.items()}
+        # Calculate DTI (Debt-to-Income) ratio
+        monthly_gross_income = data["gross_annual_income"] / 12
+        dti = (data["monthly_housing_expense"] / monthly_gross_income * 100) if monthly_gross_income > 0 else 100.0
+        
+        # Calculate Back-End DTI
+        back_end_dti = ((data["monthly_housing_expense"] + data["monthly_total_debt"]) / monthly_gross_income * 100) if monthly_gross_income > 0 else 100.0
+        
+        # Calculate LTV (Loan-to-Value) ratio
+        ltv = (data["loan_amount"] / data["property_value"] * 100) if data["property_value"] > 0 else 100.0
+        
+        # Calculate Credit Utilization
+        credit_utilization = (data["credit_used"] / data["credit_limit"] * 100) if data["credit_limit"] > 0 else 100.0
+        
+        # Calculate Savings to Income ratio
+        savings_to_income = (data["savings"] / data["gross_annual_income"] * 100) if data["gross_annual_income"] > 0 else 0.0
+        
+        # Calculate Net Worth to Income ratio
+        net_worth = data["savings"] - data["credit_used"] - data["loan_amount"]
+        net_worth_to_income = (net_worth / data["gross_annual_income"] * 100) if data["gross_annual_income"] > 0 else 0.0
         
         ratios = {
-            "Gross DTI (%)": round(100 * data["monthly_housing_expense"] / (data["gross_annual_income"] / 12), 2),
-            "Back-End DTI (%)": round(100 * data["monthly_total_debt"] / (data["gross_annual_income"] / 12), 2),
-            "LTV (%)": round(100 * data["loan_amount"] / data["property_value"], 2),
-            "Credit Utilization (%)": round(100 * data["credit_used"] / data["credit_limit"], 2),
-            "Savings-to-Income (%)": round(100 * data["savings"] / data["gross_annual_income"], 2),
-            "Net Worth-to-Income (%)": round(100 * data["savings"] / data["gross_annual_income"], 2),
+            "DTI": round(dti, 1),
+            "BackEndDTI": round(back_end_dti, 1),
+            "LTV": round(ltv, 1),
+            "CreditUtilization": round(credit_utilization, 1),
+            "SavingsToIncome": round(savings_to_income, 1),
+            "NetWorthToIncome": round(net_worth_to_income, 1)
         }
-        logger.info("Successfully calculated financial ratios")
-
-        def tag(metric, value):
-            if metric == "Gross DTI (%)":
-                return "✅ Low Risk" if value <= 28 else "⚠️ High Risk"
-            elif metric == "Back-End DTI (%)":
-                return "✅ Low Risk" if value <= 36 else "⚠️ High Risk"
-            elif metric == "LTV (%)":
-                return "✅ Low Risk" if value <= 80 else "⚠️ High Risk"
-            elif metric == "Credit Utilization (%)":
-                return "✅ Low Risk" if value <= 30 else "⚠️ High Risk"
-            elif metric == "Savings-to-Income (%)":
-                return "✅ Good" if value >= 10 else "⚠️ Low"
-            elif metric == "Net Worth-to-Income (%)":
-                return "✅ Strong" if value >= 50 else "⚠️ Weak"
-            return "❓ Unknown"
-
-        risk_profile = {metric: tag(metric, value) for metric, value in ratios.items()}
-        logger.info("Successfully generated risk profile")
+        
+        # Create risk profile
+        risk_profile = {
+            "employment_title": "Not Available",
+            "employer_name": "Not Available",
+            "gross_annual_income": data["gross_annual_income"],
+            "monthly_net_income": data["monthly_net_income"],
+            "risk_flags": []
+        }
+        
+        # Add risk flags based on standard thresholds
+        if dti > 43:
+            risk_profile["risk_flags"].append(f"DTI ratio ({dti:.1f}%) exceeds maximum threshold of 43%")
+        if back_end_dti > 36:
+            risk_profile["risk_flags"].append(f"Back-End DTI ({back_end_dti:.1f}%) exceeds recommended maximum of 36%")
+        if ltv > 80:
+            risk_profile["risk_flags"].append(f"LTV ratio ({ltv:.1f}%) exceeds standard maximum of 80%")
+        if credit_utilization > 30:
+            risk_profile["risk_flags"].append(f"Credit utilization ({credit_utilization:.1f}%) exceeds recommended 30%")
+        if savings_to_income < 10:
+            risk_profile["risk_flags"].append(f"Low savings relative to income ({savings_to_income:.1f}%)")
+        if net_worth_to_income < 0:
+            risk_profile["risk_flags"].append("Negative net worth relative to income")
         
         return ratios, risk_profile
+        
     except Exception as e:
         logger.error(f"Error calculating risk metrics: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error calculating financial metrics: {str(e)}")
+        # Return safe default values
+        return {
+            "DTI": 100.0,
+            "BackEndDTI": 100.0,
+            "LTV": 100.0,
+            "CreditUtilization": 100.0,
+            "SavingsToIncome": 0.0,
+            "NetWorthToIncome": 0.0
+        }, {
+            "employment_title": "Not Available",
+            "employer_name": "Not Available",
+            "gross_annual_income": 0,
+            "monthly_net_income": 0,
+            "risk_flags": ["Unable to calculate risk metrics"]
+        }
 
 @app.post("/analyze")
 async def analyze(files: List[UploadFile] = File(...)):
