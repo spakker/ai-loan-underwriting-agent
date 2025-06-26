@@ -314,18 +314,58 @@ NO explanations, NO additional text, ONLY the JSON object.
 def calculate_risk_metrics(data: Dict) -> Tuple[Dict, Dict]:
     """Calculate risk metrics from financial data"""
     try:
+        # Validate input data to prevent impossible calculations
+        if data["gross_annual_income"] <= 0:
+            raise ValueError("Gross annual income must be positive")
+        if data["property_value"] <= 0:
+            raise ValueError("Property value must be positive")
+        if data["loan_amount"] < 0:
+            raise ValueError("Loan amount cannot be negative")
+        if data["credit_limit"] < 0:
+            raise ValueError("Credit limit cannot be negative")
+        if data["credit_used"] < 0:
+            raise ValueError("Credit used cannot be negative")
+        if data["monthly_housing_expense"] < 0:
+            raise ValueError("Monthly housing expense cannot be negative")
+        if data["monthly_total_debt"] < 0:
+            raise ValueError("Monthly total debt cannot be negative")
+        if data["savings"] < 0:
+            raise ValueError("Savings cannot be negative")
+        
         # Calculate DTI (Debt-to-Income) ratio
         monthly_gross_income = data["gross_annual_income"] / 12
         dti = (data["monthly_housing_expense"] / monthly_gross_income * 100) if monthly_gross_income > 0 else 100.0
         
+        # Validate DTI is reasonable (should not exceed 100% for housing alone)
+        if dti > 100:
+            logger.warning(f"DTI ratio calculated as {dti:.1f}% - capping at 100%")
+            dti = 100.0
+        
         # Calculate Back-End DTI
         back_end_dti = ((data["monthly_housing_expense"] + data["monthly_total_debt"]) / monthly_gross_income * 100) if monthly_gross_income > 0 else 100.0
+        
+        # Validate Back-End DTI is reasonable
+        if back_end_dti > 100:
+            logger.warning(f"Back-End DTI calculated as {back_end_dti:.1f}% - capping at 100%")
+            back_end_dti = 100.0
         
         # Calculate LTV (Loan-to-Value) ratio
         ltv = (data["loan_amount"] / data["property_value"] * 100) if data["property_value"] > 0 else 100.0
         
-        # Calculate Credit Utilization
-        credit_utilization = (data["credit_used"] / data["credit_limit"] * 100) if data["credit_limit"] > 0 else 100.0
+        # Validate LTV is reasonable (should not exceed 100%)
+        if ltv > 100:
+            logger.warning(f"LTV ratio calculated as {ltv:.1f}% - capping at 100%")
+            ltv = 100.0
+        
+        # Calculate Credit Utilization (handle zero credit limit case)
+        if data["credit_limit"] == 0:
+            credit_utilization = 0.0  # No credit limit means no utilization
+        else:
+            credit_utilization = (data["credit_used"] / data["credit_limit"] * 100)
+            # Validate credit utilization is reasonable
+            if credit_utilization > 100:
+                logger.warning(f"Credit utilization calculated as {credit_utilization:.1f}% - capping at 100%")
+                credit_utilization = 100.0
         
         # Calculate Savings to Income ratio
         savings_to_income = (data["savings"] / data["gross_annual_income"] * 100) if data["gross_annual_income"] > 0 else 0.0
@@ -334,13 +374,14 @@ def calculate_risk_metrics(data: Dict) -> Tuple[Dict, Dict]:
         net_worth = data["savings"] - data["credit_used"] - data["loan_amount"]
         net_worth_to_income = (net_worth / data["gross_annual_income"] * 100) if data["gross_annual_income"] > 0 else 0.0
         
+        # Validate ratios are finite numbers
         ratios = {
-            "DTI": round(dti, 1),
-            "BackEndDTI": round(back_end_dti, 1),
-            "LTV": round(ltv, 1),
-            "CreditUtilization": round(credit_utilization, 1),
-            "SavingsToIncome": round(savings_to_income, 1),
-            "NetWorthToIncome": round(net_worth_to_income, 1)
+            "DTI": round(max(0, min(100, dti)), 1),
+            "BackEndDTI": round(max(0, min(100, back_end_dti)), 1),
+            "LTV": round(max(0, min(100, ltv)), 1),
+            "CreditUtilization": round(max(0, min(100, credit_utilization)), 1),
+            "SavingsToIncome": round(max(-100, min(1000, savings_to_income)), 1),  # Allow negative but cap at reasonable values
+            "NetWorthToIncome": round(max(-1000, min(1000, net_worth_to_income)), 1)  # Allow negative but cap at reasonable values
         }
         
         # Create risk profile
