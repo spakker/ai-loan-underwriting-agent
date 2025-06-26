@@ -3,9 +3,12 @@ import os
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from prompts import borrower_summary_prompt
+import logging
 
 # Load environment variables
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 def format_currency(amount):
     return f"${amount:,.2f}"
@@ -224,10 +227,21 @@ def update_dashboard(result, decision_result):
         def get_ratio_display(ratio_name, value, threshold, higher_is_better=False):
             try:
                 value = float(value)
-                if higher_is_better:
+                
+                # Validate the value is reasonable
+                if not (0 <= value <= 1000):  # Allow reasonable range for percentages
+                    logger.warning(f"Ratio {ratio_name} has unreasonable value: {value}")
+                    return 'N/A', '#6b7280'
+                
+                # Handle special cases
+                if ratio_name == 'CreditUtilization' and value > 100:
+                    # Credit utilization can exceed 100% if over limit
+                    color = '#ef4444'  # Always red if over 100%
+                elif higher_is_better:
                     color = '#22c55e' if value >= threshold else '#ef4444'
                 else:
                     color = '#22c55e' if value <= threshold else '#ef4444'
+                
                 return value, color
             except (ValueError, TypeError):
                 return 'N/A', '#6b7280'
