@@ -13,6 +13,81 @@ from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.runnables import RunnablePassthrough
 from pydantic import SecretStr
 from opik.integrations.langchain import OpikTracer
+from opik import Opik
+from opik.evaluation import evaluate
+from opik.evaluation.metrics import Hallucination, AnswerRelevance, ContextPrecision
+import sys
+
+# Initialize Opik client for evaluations
+opik_client = Opik()
+
+def setup_evaluation():
+    """Set up evaluation dataset and metrics"""
+    try:
+        # Get the evaluation dataset
+        dataset = opik_client.get_dataset(name="loan_underwriting_eval")
+        
+        # Define evaluation metrics
+        metrics = [
+            Hallucination(),
+            AnswerRelevance(),
+            ContextPrecision()
+        ]
+        
+        return dataset, metrics
+    except Exception as e:
+        logger.error(f"Error setting up evaluation: {str(e)}")
+        return None, None
+
+def evaluation_task(dataset_item):
+    """Evaluation task for loan underwriting analysis"""
+    try:
+        # Extract input from dataset item
+        input_text = dataset_item.get('input', '')
+        expected_output = dataset_item.get('expected_output', {})
+        
+        # Run the loan analysis
+        llm_result = analyze_with_llm(input_text)
+        
+        # Format result for evaluation
+        result = {
+            "input": input_text,
+            "output": json.dumps(llm_result),
+            "context": [input_text],  # Include any relevant context
+            "expected_output": json.dumps(expected_output)
+        }
+        
+        return result
+    except Exception as e:
+        logger.error(f"Error in evaluation task: {str(e)}")
+        # Return a result indicating the error instead of None
+        return {
+            "input": dataset_item.get('input', ''),
+            "output": json.dumps({"error": str(e)}),
+            "context": [dataset_item.get('input', '')],
+            "expected_output": json.dumps(dataset_item.get('expected_output', {}))
+        }
+
+def run_evaluation(experiment_name: str = "loan_underwriting_eval"):
+    """Run evaluation on the loan underwriting system"""
+    try:
+        dataset, metrics = setup_evaluation()
+        if not dataset or not metrics:
+            logger.error("Failed to set up evaluation")
+            return None
+            
+        eval_results = evaluate(
+            experiment_name=experiment_name,
+            dataset=dataset,
+            task=evaluation_task,
+            scoring_metrics=metrics
+        )
+        
+        logger.info(f"Evaluation results: {eval_results}")
+        return eval_results
+    except Exception as e:
+        logger.error(f"Error running evaluation: {str(e)}")
+        return None
 
 # Load environment variables
 load_dotenv()
@@ -473,6 +548,18 @@ async def analyze_complete(files: List[UploadFile] = File(...)):
     except Exception as e:
         logger.error(f"Unexpected error in analyze_complete endpoint: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+@app.post("/evaluate")
+async def evaluate_model():
+    """Endpoint to run evaluation on the loan underwriting model"""
+    try:
+        eval_results = run_evaluation()
+        if eval_results is None:
+            raise HTTPException(status_code=500, detail="Evaluation failed")
+        return eval_results
+    except Exception as e:
+        logger.error(f"Error in evaluation endpoint: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.on_event("startup")
 async def startup_event():
