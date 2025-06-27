@@ -276,6 +276,8 @@ def analyze_documents(files):
                 print("\nComplete analysis response:", result)
                 
                 # Extract employment info from risk profile
+                print("\nResult:", result)
+    
                 employment_info = result.get('risk_profile', {})
                 result.update({
                     'employment_title': employment_info.get('employment_title', 'Not Available'),
