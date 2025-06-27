@@ -11,7 +11,10 @@ from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.runnables import RunnablePassthrough
+from langchain_core.tools import tool
+from pydantic import BaseModel
 from pydantic import SecretStr
+from datetime import datetime
 
 # Load environment variables
 load_dotenv()
@@ -311,30 +314,83 @@ NO explanations, NO additional text, ONLY the JSON object.
         logger.error(f"Error in LLM analysis: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error in AI analysis: {str(e)}")
 
-def calculate_risk_metrics(data: Dict) -> Tuple[Dict, Dict]:
-    """Calculate risk metrics from financial data"""
+class FinancialData(BaseModel):
+    """Pydantic model for financial data validation"""
+    gross_annual_income: float
+    monthly_net_income: float
+    monthly_housing_expense: float
+    monthly_total_debt: float
+    savings: float
+    credit_used: float
+    credit_limit: float
+    loan_amount: float
+    property_value: float
+    employment_title: str = "Not Available"
+    employer_name: str = "Not Available"
+    
+    class Config:
+        extra = "allow"  # Allow additional fields
+
+@tool
+def calculate_risk_metrics(data: Dict) -> Dict:
+    """Calculate comprehensive risk metrics for mortgage underwriting.
+    
+    This tool analyzes financial data to calculate key ratios and identify risk factors:
+    - DTI (Debt-to-Income): Monthly housing expense as % of gross monthly income
+    - Back-End DTI: Total monthly debt as % of gross monthly income  
+    - LTV (Loan-to-Value): Loan amount as % of property value
+    - Credit Utilization: Credit card balances as % of available credit
+    - Savings to Income: Savings as % of annual income
+    - Net Worth to Income: Net worth as % of annual income
+    
+    The tool automatically handles null/missing values and provides risk flags based on industry standards.
+    
+    Args:
+        data: Dictionary containing financial data with fields:
+            - gross_annual_income: Annual income before taxes
+            - monthly_net_income: Monthly take-home pay after taxes
+            - monthly_housing_expense: New mortgage payment including PITI
+            - monthly_total_debt: All monthly debt payments
+            - savings: Total liquid assets available
+            - credit_used: Current total credit card balances
+            - credit_limit: Total credit card limits available
+            - loan_amount: Requested mortgage loan amount
+            - property_value: Property purchase price or appraised value
+            - employment_title: Borrower's job title (optional)
+            - employer_name: Borrower's employer (optional)
+    
+    Returns:
+        Dictionary containing:
+        - ratios: Calculated financial ratios (DTI, LTV, etc.)
+        - risk_profile: Borrower information and risk flags
+    """
+    print("Calculating risk metrics", data)
+    
     try:
+        # Clean and validate input data
+        cleaned_data = clean_financial_data(data)
+        
         # Validate input data to prevent impossible calculations
-        if data["gross_annual_income"] <= 0:
+        if cleaned_data["gross_annual_income"] <= 0:
             raise ValueError("Gross annual income must be positive")
-        if data["property_value"] <= 0:
+        if cleaned_data["property_value"] <= 0:
             raise ValueError("Property value must be positive")
-        if data["loan_amount"] < 0:
+        if cleaned_data["loan_amount"] < 0:
             raise ValueError("Loan amount cannot be negative")
-        if data["credit_limit"] < 0:
+        if cleaned_data["credit_limit"] < 0:
             raise ValueError("Credit limit cannot be negative")
-        if data["credit_used"] < 0:
+        if cleaned_data["credit_used"] < 0:
             raise ValueError("Credit used cannot be negative")
-        if data["monthly_housing_expense"] < 0:
+        if cleaned_data["monthly_housing_expense"] < 0:
             raise ValueError("Monthly housing expense cannot be negative")
-        if data["monthly_total_debt"] < 0:
+        if cleaned_data["monthly_total_debt"] < 0:
             raise ValueError("Monthly total debt cannot be negative")
-        if data["savings"] < 0:
+        if cleaned_data["savings"] < 0:
             raise ValueError("Savings cannot be negative")
         
         # Calculate DTI (Debt-to-Income) ratio
-        monthly_gross_income = data["gross_annual_income"] / 12
-        dti = (data["monthly_housing_expense"] / monthly_gross_income * 100) if monthly_gross_income > 0 else 100.0
+        monthly_gross_income = cleaned_data["gross_annual_income"] / 12
+        dti = (cleaned_data["monthly_housing_expense"] / monthly_gross_income * 100) if monthly_gross_income > 0 else 100.0
         
         # Validate DTI is reasonable (should not exceed 100% for housing alone)
         if dti > 100:
@@ -342,7 +398,7 @@ def calculate_risk_metrics(data: Dict) -> Tuple[Dict, Dict]:
             dti = 100.0
         
         # Calculate Back-End DTI
-        back_end_dti = ((data["monthly_housing_expense"] + data["monthly_total_debt"]) / monthly_gross_income * 100) if monthly_gross_income > 0 else 100.0
+        back_end_dti = ((cleaned_data["monthly_housing_expense"] + cleaned_data["monthly_total_debt"]) / monthly_gross_income * 100) if monthly_gross_income > 0 else 100.0
         
         # Validate Back-End DTI is reasonable
         if back_end_dti > 100:
@@ -350,7 +406,7 @@ def calculate_risk_metrics(data: Dict) -> Tuple[Dict, Dict]:
             back_end_dti = 100.0
         
         # Calculate LTV (Loan-to-Value) ratio
-        ltv = (data["loan_amount"] / data["property_value"] * 100) if data["property_value"] > 0 else 100.0
+        ltv = (cleaned_data["loan_amount"] / cleaned_data["property_value"] * 100) if cleaned_data["property_value"] > 0 else 100.0
         
         # Validate LTV is reasonable (should not exceed 100%)
         if ltv > 100:
@@ -358,21 +414,21 @@ def calculate_risk_metrics(data: Dict) -> Tuple[Dict, Dict]:
             ltv = 100.0
         
         # Calculate Credit Utilization (handle zero credit limit case)
-        if data["credit_limit"] == 0:
+        if cleaned_data["credit_limit"] == 0:
             credit_utilization = 0.0  # No credit limit means no utilization
         else:
-            credit_utilization = (data["credit_used"] / data["credit_limit"] * 100)
+            credit_utilization = (cleaned_data["credit_used"] / cleaned_data["credit_limit"] * 100)
             # Validate credit utilization is reasonable
             if credit_utilization > 100:
                 logger.warning(f"Credit utilization calculated as {credit_utilization:.1f}% - capping at 100%")
                 credit_utilization = 100.0
         
         # Calculate Savings to Income ratio
-        savings_to_income = (data["savings"] / data["gross_annual_income"] * 100) if data["gross_annual_income"] > 0 else 0.0
+        savings_to_income = (cleaned_data["savings"] / cleaned_data["gross_annual_income"] * 100) if cleaned_data["gross_annual_income"] > 0 else 0.0
         
         # Calculate Net Worth to Income ratio
-        net_worth = data["savings"] - data["credit_used"] - data["loan_amount"]
-        net_worth_to_income = (net_worth / data["gross_annual_income"] * 100) if data["gross_annual_income"] > 0 else 0.0
+        net_worth = cleaned_data["savings"] - cleaned_data["credit_used"] - cleaned_data["loan_amount"]
+        net_worth_to_income = (net_worth / cleaned_data["gross_annual_income"] * 100) if cleaned_data["gross_annual_income"] > 0 else 0.0
         
         # Validate ratios are finite numbers
         ratios = {
@@ -386,10 +442,10 @@ def calculate_risk_metrics(data: Dict) -> Tuple[Dict, Dict]:
         
         # Create risk profile
         risk_profile = {
-            "employment_title": "Not Available",
-            "employer_name": "Not Available",
-            "gross_annual_income": data["gross_annual_income"],
-            "monthly_net_income": data["monthly_net_income"],
+            "employment_title": cleaned_data.get("employment_title", "Not Available"),
+            "employer_name": cleaned_data.get("employer_name", "Not Available"),
+            "gross_annual_income": cleaned_data["gross_annual_income"],
+            "monthly_net_income": cleaned_data["monthly_net_income"],
             "risk_flags": []
         }
         
@@ -407,25 +463,90 @@ def calculate_risk_metrics(data: Dict) -> Tuple[Dict, Dict]:
         if net_worth_to_income < 0:
             risk_profile["risk_flags"].append("Negative net worth relative to income")
         
-        return ratios, risk_profile
+        # Return combined result as a single dictionary
+        return {
+            "ratios": ratios,
+            "risk_profile": risk_profile
+        }
         
     except Exception as e:
         logger.error(f"Error calculating risk metrics: {str(e)}", exc_info=True)
         # Return safe default values
         return {
-            "DTI": 100.0,
-            "BackEndDTI": 100.0,
-            "LTV": 100.0,
-            "CreditUtilization": 100.0,
-            "SavingsToIncome": 0.0,
-            "NetWorthToIncome": 0.0
-        }, {
-            "employment_title": "Not Available",
-            "employer_name": "Not Available",
-            "gross_annual_income": 0,
-            "monthly_net_income": 0,
-            "risk_flags": ["Unable to calculate risk metrics"]
+            "ratios": {
+                "DTI": 100.0,
+                "BackEndDTI": 100.0,
+                "LTV": 100.0,
+                "CreditUtilization": 100.0,
+                "SavingsToIncome": 0.0,
+                "NetWorthToIncome": 0.0
+            },
+            "risk_profile": {
+                "employment_title": "Not Available",
+                "employer_name": "Not Available",
+                "gross_annual_income": 0,
+                "monthly_net_income": 0,
+                "risk_flags": [f"Unable to calculate risk metrics: {str(e)}"]
+            }
         }
+
+def clean_financial_data(data: Dict) -> Dict:
+    """Clean and validate financial data, handling null/missing values"""
+    if not isinstance(data, dict):
+        raise ValueError("Input data must be a dictionary")
+    
+    # Define required fields and their default values
+    required_fields = {
+        "gross_annual_income": 0,
+        "monthly_net_income": 0,
+        "monthly_housing_expense": 0,
+        "monthly_total_debt": 0,
+        "savings": 0,
+        "credit_used": 0,
+        "credit_limit": 0,
+        "loan_amount": 0,
+        "property_value": 0
+    }
+    
+    # Optional fields
+    optional_fields = {
+        "employment_title": "Not Available",
+        "employer_name": "Not Available"
+    }
+    
+    cleaned_data = {}
+    
+    # Process required fields
+    for field, default_value in required_fields.items():
+        value = data.get(field)
+        
+        # Handle null, None, empty string, or missing values
+        if value is None or value == "" or value == "null" or value == "None":
+            cleaned_data[field] = default_value
+            logger.warning(f"Field '{field}' was null/missing, using default value: {default_value}")
+        else:
+            try:
+                # Convert to float and validate
+                float_value = float(value)
+                if float_value < 0 and field not in ["credit_used", "loan_amount"]:
+                    logger.warning(f"Field '{field}' was negative ({float_value}), using default value: {default_value}")
+                    cleaned_data[field] = default_value
+                else:
+                    cleaned_data[field] = float_value
+            except (ValueError, TypeError):
+                logger.warning(f"Field '{field}' could not be converted to number ({value}), using default value: {default_value}")
+                cleaned_data[field] = default_value
+    
+    # Process optional fields
+    for field, default_value in optional_fields.items():
+        value = data.get(field)
+        if value is None or value == "" or value == "null" or value == "None":
+            cleaned_data[field] = default_value
+        else:
+            cleaned_data[field] = str(value)
+    
+    logger.info(f"Cleaned data: {cleaned_data}")
+    return cleaned_data
 
 @app.post("/analyze")
 async def analyze(files: List[UploadFile] = File(...)):
@@ -484,14 +605,187 @@ async def analyze_complete(files: List[UploadFile] = File(...)):
         # Analyze text with LLM
         data = analyze_with_llm(combined_text)
         
-        # Calculate risk metrics
-        ratios, risk_profile = calculate_risk_metrics(data)
+        # Calculate risk metrics using the tool
+        result = calculate_risk_metrics.invoke({"data": data})
         
-        return {"ratios": ratios, "risk_profile": risk_profile}
+        return result
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Unexpected error in analyze_complete endpoint: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+@app.post("/analyze/enhanced")
+async def analyze_enhanced(files: List[UploadFile] = File(...)):
+    """Enhanced analysis endpoint with LLM + tool chain integration"""
+    try:
+        # Extract text from all files
+        all_text = process_files(files)
+        combined_text = "\n".join(all_text)
+        
+        # Analyze text with LLM to extract financial data
+        data = analyze_with_llm(combined_text)
+        
+        # Create LLM instance for enhanced analysis
+        llm = ChatOpenAI(
+            model="gpt-4o",
+            temperature=0.1,
+            api_key=OPENAI_API_KEY
+        )
+        
+        # Create enhanced prompt that uses the tool
+        enhanced_prompt = ChatPromptTemplate.from_template("""
+You are a senior mortgage underwriter with 15+ years of experience analyzing loan applications.
+
+The financial data has been extracted from the borrower's documents:
+{financial_data}
+
+Now use the calculate_risk_metrics tool to perform a comprehensive risk analysis.
+
+After calculating the risk metrics, provide a detailed assessment that includes:
+
+1. **Executive Summary** (2-3 sentences):
+   - Overall risk assessment
+   - Key strengths and concerns
+
+2. **Financial Analysis**:
+   - Income stability and adequacy
+   - Debt management assessment
+   - Asset and savings evaluation
+
+3. **Risk Assessment**:
+   - Specific risk factors identified
+   - Impact on loan approval
+   - Mitigation strategies if applicable
+
+4. **Recommendation**:
+   - Clear approval decision (Approve/Deny/Refer)
+   - Conditions if approved
+   - Additional documentation needed if referred
+
+5. **Next Steps**:
+   - Specific actions required
+   - Timeline for decision
+
+Use the tool to calculate the metrics and then provide your professional analysis.
+""")
+        
+        # Create the enhanced chain with the tool
+        enhanced_chain = enhanced_prompt | llm.bind_tools([calculate_risk_metrics])
+        
+        # Execute the enhanced chain
+        llm_response = enhanced_chain.invoke({"financial_data": json.dumps(data, indent=2)})
+        
+        # Calculate risk metrics using the tool directly for comparison
+        risk_result = calculate_risk_metrics(data)
+        
+        return {
+            "llm_analysis": llm_response.content,
+            "calculated_metrics": risk_result,
+            "extracted_data": data,
+            "analysis_timestamp": str(datetime.now()),
+            "model_used": "gpt-4o"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in analyze_enhanced endpoint: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+@app.post("/analyze/automated")
+async def analyze_automated(files: List[UploadFile] = File(...)):
+    """Fully automated analysis with decision recommendation"""
+    try:
+        # Extract text from all files
+        all_text = process_files(files)
+        combined_text = "\n".join(all_text)
+        
+        # Analyze text with LLM to extract financial data
+        data = analyze_with_llm(combined_text)
+        
+        # Create LLM instance for automated decision making
+        llm = ChatOpenAI(
+            model="gpt-4o",
+            temperature=0.1,
+            api_key=OPENAI_API_KEY
+        )
+        
+        # Create automated decision prompt
+        decision_prompt = ChatPromptTemplate.from_template("""
+You are an automated mortgage underwriting system. Your job is to analyze loan applications and provide instant decisions.
+
+Financial data extracted from documents:
+{financial_data}
+
+Use the calculate_risk_metrics tool to analyze the risk profile, then provide an automated decision.
+
+**Decision Rules:**
+- **Approve**: DTI ≤ 43%, LTV ≤ 80%, no major risk flags, adequate savings
+- **Refer**: Borderline ratios, some risk flags, needs human review
+- **Deny**: DTI > 50%, LTV > 95%, multiple risk flags, insufficient income
+
+**Required Output Format:**
+{{
+  "decision": "Approve|Deny|Refer",
+  "confidence": "High|Medium|Low",
+  "reasoning": "Brief explanation of decision",
+  "conditions": ["List of conditions if approved"],
+  "risk_score": "1-10 scale",
+  "recommended_rate_adjustment": "+0.25%|+0.5%|+1.0%|None"
+}}
+
+Use the tool and provide your decision in the exact JSON format above.
+""")
+        
+        # Create the automated decision chain
+        decision_chain = decision_prompt | llm.bind_tools([calculate_risk_metrics])
+        
+        # Execute the decision chain
+        decision_response = decision_chain.invoke({"financial_data": json.dumps(data, indent=2)})
+        
+        # Calculate risk metrics for reference
+        risk_result = calculate_risk_metrics(data)
+        
+        # Try to parse the decision from LLM response
+        try:
+            # Extract JSON from the response if it's wrapped in text
+            import re
+            json_match = re.search(r'\{.*\}', decision_response.content, re.DOTALL)
+            if json_match:
+                decision_data = json.loads(json_match.group())
+            else:
+                decision_data = {"decision": "Refer", "reasoning": "Unable to parse decision"}
+        except:
+            decision_data = {"decision": "Refer", "reasoning": "Error parsing decision"}
+        
+        return {
+            "automated_decision": decision_data,
+            "llm_response": decision_response.content,
+            "calculated_metrics": risk_result,
+            "extracted_data": data,
+            "processing_time": str(datetime.now())
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in analyze_automated endpoint: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+@app.post("/calculate-risk")
+async def calculate_risk_endpoint(data: Dict):
+    """Direct endpoint to calculate risk metrics from financial data"""
+    try:
+        # Calculate risk metrics using the tool (includes data cleaning)
+        result = calculate_risk_metrics(data)
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in calculate_risk_endpoint: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @app.on_event("startup")
