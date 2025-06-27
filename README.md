@@ -4,7 +4,7 @@ This application provides mortgage risk analysis by processing financial documen
 
 ## 🛠️ Prerequisites
 
-- Python 3.8 or higher
+- Python 3.12
 - pip (Python package installer)
 - Virtual environment (recommended)
 
@@ -20,13 +20,13 @@ This application provides mortgage risk analysis by processing financial documen
    
    Windows:
    ```bash
-   python -m venv venv
+   py -3.12 -m venv venv --upgrade-deps
    .\venv\Scripts\activate
    ```
 
    Linux/Mac:
    ```bash
-   python -m venv venv
+   python3.12 -m venv venv
    source venv/bin/activate
    ```
 
@@ -37,9 +37,12 @@ This application provides mortgage risk analysis by processing financial documen
 
 4. **Set up environment variables**
    
-   Create a `.env` file in the root directory and add your OpenAI API key:
+   Create a `.env` file in the root directory and add your API keys:
    ```
-   OPENAI_API_KEY=your_api_key_here
+   OPENAI_API_KEY=your_openai_api_key_here
+   OPIK_API_KEY=your_opik_api_key_here
+   OPIK_WORKSPACE=your_opik_workspace_here
+   OPIK_PROJECT_NAME=your_opik_project_name_here
    ```
 
 ## 🏃‍♂️ Running the Application
