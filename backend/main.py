@@ -15,6 +15,82 @@ from langchain_core.tools import tool
 from pydantic import BaseModel
 from pydantic import SecretStr
 from datetime import datetime
+from opik.integrations.langchain import OpikTracer
+from opik import Opik
+from opik.evaluation import evaluate
+from opik.evaluation.metrics import Hallucination, AnswerRelevance, ContextPrecision
+import sys
+
+# Initialize Opik client for evaluations
+opik_client = Opik()
+
+def setup_evaluation():
+    """Set up evaluation dataset and metrics"""
+    try:
+        # Get the evaluation dataset
+        dataset = opik_client.get_dataset(name="loan_underwriting_eval")
+        
+        # Define evaluation metrics
+        metrics = [
+            Hallucination(),
+            AnswerRelevance(),
+            ContextPrecision()
+        ]
+        
+        return dataset, metrics
+    except Exception as e:
+        logger.error(f"Error setting up evaluation: {str(e)}")
+        return None, None
+
+def evaluation_task(dataset_item):
+    """Evaluation task for loan underwriting analysis"""
+    try:
+        # Extract input from dataset item
+        input_text = dataset_item.get('input', '')
+        expected_output = dataset_item.get('expected_output', {})
+        
+        # Run the loan analysis
+        llm_result = analyze_with_llm(input_text)
+        
+        # Format result for evaluation
+        result = {
+            "input": input_text,
+            "output": json.dumps(llm_result),
+            "context": [input_text],  # Include any relevant context
+            "expected_output": json.dumps(expected_output)
+        }
+        
+        return result
+    except Exception as e:
+        logger.error(f"Error in evaluation task: {str(e)}")
+        # Return a result indicating the error instead of None
+        return {
+            "input": dataset_item.get('input', ''),
+            "output": json.dumps({"error": str(e)}),
+            "context": [dataset_item.get('input', '')],
+            "expected_output": json.dumps(dataset_item.get('expected_output', {}))
+        }
+
+def run_evaluation(experiment_name: str = "loan_underwriting_eval"):
+    """Run evaluation on the loan underwriting system"""
+    try:
+        dataset, metrics = setup_evaluation()
+        if not dataset or not metrics:
+            logger.error("Failed to set up evaluation")
+            return None
+            
+        eval_results = evaluate(
+            experiment_name=experiment_name,
+            dataset=dataset,
+            task=evaluation_task,
+            scoring_metrics=metrics
+        )
+        
+        logger.info(f"Evaluation results: {eval_results}")
+        return eval_results
+    except Exception as e:
+        logger.error(f"Error running evaluation: {str(e)}")
+        return None
 
 # Load environment variables
 load_dotenv()
@@ -30,11 +106,30 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Check for OpenAI API key
+# Check for required API keys
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+OPIK_API_KEY = os.getenv('OPIK_API_KEY')
+OPIK_WORKSPACE = os.getenv('OPIK_WORKSPACE')
+OPIK_PROJECT_NAME=os.getenv('OPIK_PROJECT_NAME')
+
+# Log OPIK configuration
+logger.info(f"OPIK Workspace: {OPIK_WORKSPACE}")
+logger.info(f"OPIK Project Name: {OPIK_PROJECT_NAME}")
+
 if not OPENAI_API_KEY:
     logger.error("OpenAI API key not found. Please set the OPENAI_API_KEY environment variable.")
     raise ValueError("OpenAI API key not found. Please set the OPENAI_API_KEY environment variable.")
+
+if not OPIK_API_KEY or not OPIK_WORKSPACE:
+    logger.error("Opik configuration not found. Please set OPIK_API_KEY and OPIK_WORKSPACE environment variables.")
+    raise ValueError("Opik configuration not found. Please set OPIK_API_KEY and OPIK_WORKSPACE environment variables.")
+
+# Configure Opik
+os.environ["OPIK_API_KEY"] = OPIK_API_KEY
+os.environ["OPIK_WORKSPACE"] = OPIK_WORKSPACE
+
+# Initialize Opik tracer
+opik_tracer = OpikTracer()
 
 app = FastAPI()
 
@@ -277,11 +372,12 @@ Return ONLY the JSON object with these exact field names:
 NO explanations, NO additional text, ONLY the JSON object.
 """)
         
-        # Create the LLM
+        # Create the LLM with Opik tracer
         llm = ChatOpenAI(
             model="gpt-4", 
             api_key=SecretStr(OPENAI_API_KEY) if OPENAI_API_KEY else None,
-            temperature=0
+            temperature=0,
+            callbacks=[opik_tracer]
         )
         
         # Create the parser
@@ -295,9 +391,9 @@ NO explanations, NO additional text, ONLY the JSON object.
             | parser
         )
         
-        # Run the chain
+        # Run the chain with Opik tracer
         try:
-            data = chain.invoke(text)
+            data = chain.invoke(text, callbacks=[opik_tracer])
             logger.info("Successfully completed LLM analysis")
             
             # Validate and clean the data
@@ -615,178 +711,17 @@ async def analyze_complete(files: List[UploadFile] = File(...)):
         logger.error(f"Unexpected error in analyze_complete endpoint: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
-@app.post("/analyze/enhanced")
-async def analyze_enhanced(files: List[UploadFile] = File(...)):
-    """Enhanced analysis endpoint with LLM + tool chain integration"""
+@app.post("/evaluate")
+async def evaluate_model():
+    """Endpoint to run evaluation on the loan underwriting model"""
     try:
-        # Extract text from all files
-        all_text = process_files(files)
-        combined_text = "\n".join(all_text)
-        
-        # Analyze text with LLM to extract financial data
-        data = analyze_with_llm(combined_text)
-        
-        # Create LLM instance for enhanced analysis
-        llm = ChatOpenAI(
-            model="gpt-4o",
-            temperature=0.1,
-            api_key=OPENAI_API_KEY
-        )
-        
-        # Create enhanced prompt that uses the tool
-        enhanced_prompt = ChatPromptTemplate.from_template("""
-You are a senior mortgage underwriter with 15+ years of experience analyzing loan applications.
-
-The financial data has been extracted from the borrower's documents:
-{financial_data}
-
-Now use the calculate_risk_metrics tool to perform a comprehensive risk analysis.
-
-After calculating the risk metrics, provide a detailed assessment that includes:
-
-1. **Executive Summary** (2-3 sentences):
-   - Overall risk assessment
-   - Key strengths and concerns
-
-2. **Financial Analysis**:
-   - Income stability and adequacy
-   - Debt management assessment
-   - Asset and savings evaluation
-
-3. **Risk Assessment**:
-   - Specific risk factors identified
-   - Impact on loan approval
-   - Mitigation strategies if applicable
-
-4. **Recommendation**:
-   - Clear approval decision (Approve/Deny/Refer)
-   - Conditions if approved
-   - Additional documentation needed if referred
-
-5. **Next Steps**:
-   - Specific actions required
-   - Timeline for decision
-
-Use the tool to calculate the metrics and then provide your professional analysis.
-""")
-        
-        # Create the enhanced chain with the tool
-        enhanced_chain = enhanced_prompt | llm.bind_tools([calculate_risk_metrics])
-        
-        # Execute the enhanced chain
-        llm_response = enhanced_chain.invoke({"financial_data": json.dumps(data, indent=2)})
-        
-        # Calculate risk metrics using the tool directly for comparison
-        risk_result = calculate_risk_metrics(data)
-        
-        return {
-            "llm_analysis": llm_response.content,
-            "calculated_metrics": risk_result,
-            "extracted_data": data,
-            "analysis_timestamp": str(datetime.now()),
-            "model_used": "gpt-4o"
-        }
-        
-    except HTTPException:
-        raise
+        eval_results = run_evaluation()
+        if eval_results is None:
+            raise HTTPException(status_code=500, detail="Evaluation failed")
+        return eval_results
     except Exception as e:
-        logger.error(f"Unexpected error in analyze_enhanced endpoint: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
-
-@app.post("/analyze/automated")
-async def analyze_automated(files: List[UploadFile] = File(...)):
-    """Fully automated analysis with decision recommendation"""
-    try:
-        # Extract text from all files
-        all_text = process_files(files)
-        combined_text = "\n".join(all_text)
-        
-        # Analyze text with LLM to extract financial data
-        data = analyze_with_llm(combined_text)
-        
-        # Create LLM instance for automated decision making
-        llm = ChatOpenAI(
-            model="gpt-4o",
-            temperature=0.1,
-            api_key=OPENAI_API_KEY
-        )
-        
-        # Create automated decision prompt
-        decision_prompt = ChatPromptTemplate.from_template("""
-You are an automated mortgage underwriting system. Your job is to analyze loan applications and provide instant decisions.
-
-Financial data extracted from documents:
-{financial_data}
-
-Use the calculate_risk_metrics tool to analyze the risk profile, then provide an automated decision.
-
-**Decision Rules:**
-- **Approve**: DTI ≤ 43%, LTV ≤ 80%, no major risk flags, adequate savings
-- **Refer**: Borderline ratios, some risk flags, needs human review
-- **Deny**: DTI > 50%, LTV > 95%, multiple risk flags, insufficient income
-
-**Required Output Format:**
-{{
-  "decision": "Approve|Deny|Refer",
-  "confidence": "High|Medium|Low",
-  "reasoning": "Brief explanation of decision",
-  "conditions": ["List of conditions if approved"],
-  "risk_score": "1-10 scale",
-  "recommended_rate_adjustment": "+0.25%|+0.5%|+1.0%|None"
-}}
-
-Use the tool and provide your decision in the exact JSON format above.
-""")
-        
-        # Create the automated decision chain
-        decision_chain = decision_prompt | llm.bind_tools([calculate_risk_metrics])
-        
-        # Execute the decision chain
-        decision_response = decision_chain.invoke({"financial_data": json.dumps(data, indent=2)})
-        
-        # Calculate risk metrics for reference
-        risk_result = calculate_risk_metrics(data)
-        
-        # Try to parse the decision from LLM response
-        try:
-            # Extract JSON from the response if it's wrapped in text
-            import re
-            json_match = re.search(r'\{.*\}', decision_response.content, re.DOTALL)
-            if json_match:
-                decision_data = json.loads(json_match.group())
-            else:
-                decision_data = {"decision": "Refer", "reasoning": "Unable to parse decision"}
-        except:
-            decision_data = {"decision": "Refer", "reasoning": "Error parsing decision"}
-        
-        return {
-            "automated_decision": decision_data,
-            "llm_response": decision_response.content,
-            "calculated_metrics": risk_result,
-            "extracted_data": data,
-            "processing_time": str(datetime.now())
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Unexpected error in analyze_automated endpoint: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
-
-@app.post("/calculate-risk")
-async def calculate_risk_endpoint(data: Dict):
-    """Direct endpoint to calculate risk metrics from financial data"""
-    try:
-        # Calculate risk metrics using the tool (includes data cleaning)
-        result = calculate_risk_metrics(data)
-        
-        return result
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error in calculate_risk_endpoint: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        logger.error(f"Error in evaluation endpoint: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.on_event("startup")
 async def startup_event():
