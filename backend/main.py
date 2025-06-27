@@ -12,6 +12,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.runnables import RunnablePassthrough
 from pydantic import SecretStr
+from opik.integrations.langchain import OpikTracer
 
 # Load environment variables
 load_dotenv()
@@ -27,11 +28,30 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Check for OpenAI API key
+# Check for required API keys
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+OPIK_API_KEY = os.getenv('OPIK_API_KEY')
+OPIK_WORKSPACE = os.getenv('OPIK_WORKSPACE')
+OPIK_PROJECT_NAME=os.getenv('OPIK_PROJECT_NAME')
+
+# Log OPIK configuration
+logger.info(f"OPIK Workspace: {OPIK_WORKSPACE}")
+logger.info(f"OPIK Project Name: {OPIK_PROJECT_NAME}")
+
 if not OPENAI_API_KEY:
     logger.error("OpenAI API key not found. Please set the OPENAI_API_KEY environment variable.")
     raise ValueError("OpenAI API key not found. Please set the OPENAI_API_KEY environment variable.")
+
+if not OPIK_API_KEY or not OPIK_WORKSPACE:
+    logger.error("Opik configuration not found. Please set OPIK_API_KEY and OPIK_WORKSPACE environment variables.")
+    raise ValueError("Opik configuration not found. Please set OPIK_API_KEY and OPIK_WORKSPACE environment variables.")
+
+# Configure Opik
+os.environ["OPIK_API_KEY"] = OPIK_API_KEY
+os.environ["OPIK_WORKSPACE"] = OPIK_WORKSPACE
+
+# Initialize Opik tracer
+opik_tracer = OpikTracer()
 
 app = FastAPI()
 
@@ -274,11 +294,12 @@ Return ONLY the JSON object with these exact field names:
 NO explanations, NO additional text, ONLY the JSON object.
 """)
         
-        # Create the LLM
+        # Create the LLM with Opik tracer
         llm = ChatOpenAI(
             model="gpt-4", 
             api_key=SecretStr(OPENAI_API_KEY) if OPENAI_API_KEY else None,
-            temperature=0
+            temperature=0,
+            callbacks=[opik_tracer]
         )
         
         # Create the parser
@@ -292,9 +313,9 @@ NO explanations, NO additional text, ONLY the JSON object.
             | parser
         )
         
-        # Run the chain
+        # Run the chain with Opik tracer
         try:
-            data = chain.invoke(text)
+            data = chain.invoke(text, callbacks=[opik_tracer])
             logger.info("Successfully completed LLM analysis")
             
             # Validate and clean the data
