@@ -20,6 +20,82 @@ from pydantic import SecretStr
 from datetime import datetime
 from backend.calculate_rag import get_risk_policy_context
 from frontend.prompts import rag_policy_summary_prompt
+from opik.integrations.langchain import OpikTracer
+from opik import Opik
+from opik.evaluation import evaluate
+from opik.evaluation.metrics import Hallucination, AnswerRelevance, ContextPrecision
+import sys
+
+# Initialize Opik client for evaluations
+opik_client = Opik()
+
+def setup_evaluation():
+    """Set up evaluation dataset and metrics"""
+    try:
+        # Get the evaluation dataset
+        dataset = opik_client.get_dataset(name="loan_underwriting_eval")
+        
+        # Define evaluation metrics
+        metrics = [
+            Hallucination(),
+            AnswerRelevance(),
+            ContextPrecision()
+        ]
+        
+        return dataset, metrics
+    except Exception as e:
+        logger.error(f"Error setting up evaluation: {str(e)}")
+        return None, None
+
+def evaluation_task(dataset_item):
+    """Evaluation task for loan underwriting analysis"""
+    try:
+        # Extract input from dataset item
+        input_text = dataset_item.get('input', '')
+        expected_output = dataset_item.get('expected_output', {})
+        
+        # Run the loan analysis
+        llm_result = analyze_with_llm(input_text)
+        
+        # Format result for evaluation
+        result = {
+            "input": input_text,
+            "output": json.dumps(llm_result),
+            "context": [input_text],  # Include any relevant context
+            "expected_output": json.dumps(expected_output)
+        }
+        
+        return result
+    except Exception as e:
+        logger.error(f"Error in evaluation task: {str(e)}")
+        # Return a result indicating the error instead of None
+        return {
+            "input": dataset_item.get('input', ''),
+            "output": json.dumps({"error": str(e)}),
+            "context": [dataset_item.get('input', '')],
+            "expected_output": json.dumps(dataset_item.get('expected_output', {}))
+        }
+
+def run_evaluation(experiment_name: str = "loan_underwriting_eval"):
+    """Run evaluation on the loan underwriting system"""
+    try:
+        dataset, metrics = setup_evaluation()
+        if not dataset or not metrics:
+            logger.error("Failed to set up evaluation")
+            return None
+            
+        eval_results = evaluate(
+            experiment_name=experiment_name,
+            dataset=dataset,
+            task=evaluation_task,
+            scoring_metrics=metrics
+        )
+        
+        logger.info(f"Evaluation results: {eval_results}")
+        return eval_results
+    except Exception as e:
+        logger.error(f"Error running evaluation: {str(e)}")
+        return None
 
 # Load environment variables
 load_dotenv()
@@ -35,11 +111,30 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Check for OpenAI API key
+# Check for required API keys
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+OPIK_API_KEY = os.getenv('OPIK_API_KEY')
+OPIK_WORKSPACE = os.getenv('OPIK_WORKSPACE')
+OPIK_PROJECT_NAME=os.getenv('OPIK_PROJECT_NAME')
+
+# Log OPIK configuration
+logger.info(f"OPIK Workspace: {OPIK_WORKSPACE}")
+logger.info(f"OPIK Project Name: {OPIK_PROJECT_NAME}")
+
 if not OPENAI_API_KEY:
     logger.error("OpenAI API key not found. Please set the OPENAI_API_KEY environment variable.")
     raise ValueError("OpenAI API key not found. Please set the OPENAI_API_KEY environment variable.")
+
+if not OPIK_API_KEY or not OPIK_WORKSPACE:
+    logger.error("Opik configuration not found. Please set OPIK_API_KEY and OPIK_WORKSPACE environment variables.")
+    raise ValueError("Opik configuration not found. Please set OPIK_API_KEY and OPIK_WORKSPACE environment variables.")
+
+# Configure Opik
+os.environ["OPIK_API_KEY"] = OPIK_API_KEY
+os.environ["OPIK_WORKSPACE"] = OPIK_WORKSPACE
+
+# Initialize Opik tracer
+opik_tracer = OpikTracer()
 
 app = FastAPI()
 
@@ -282,11 +377,12 @@ Return ONLY the JSON object with these exact field names:
 NO explanations, NO additional text, ONLY the JSON object.
 """)
         
-        # Create the LLM
+        # Create the LLM with Opik tracer
         llm = ChatOpenAI(
             model="gpt-4", 
             api_key=SecretStr(OPENAI_API_KEY) if OPENAI_API_KEY else None,
-            temperature=0
+            temperature=0,
+            callbacks=[opik_tracer]
         )
         
         # Create the parser
@@ -300,9 +396,9 @@ NO explanations, NO additional text, ONLY the JSON object.
             | parser
         )
         
-        # Run the chain
+        # Run the chain with Opik tracer
         try:
-            data = chain.invoke(text)
+            data = chain.invoke(text, callbacks=[opik_tracer])
             logger.info("Successfully completed LLM analysis")
             
             # Validate and clean the data
@@ -620,6 +716,7 @@ async def analyze_complete(files: List[UploadFile] = File(...)):
         logger.error(f"Unexpected error in analyze_complete endpoint: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
+
 @app.post("/analyze/enhanced")
 async def analyze_enhanced(files: List[UploadFile] = File(...)):
     """Enhanced analysis endpoint with LLM + tool chain integration"""
@@ -886,6 +983,19 @@ async def get_mortgage_policy_summary():
     except Exception as e:
         logger.error(f"Error getting policy summary: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error retrieving policy summary: {str(e)}")
+
+@app.post("/evaluate")
+async def evaluate_model():
+    """Endpoint to run evaluation on the loan underwriting model"""
+    try:
+        eval_results = run_evaluation()
+        if eval_results is None:
+            raise HTTPException(status_code=500, detail="Evaluation failed")
+        return eval_results
+    except Exception as e:
+        logger.error(f"Error in evaluation endpoint: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.on_event("startup")
 async def startup_event():

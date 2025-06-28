@@ -3,6 +3,7 @@ import requests
 import json
 import os
 from dashboard import create_dashboard_interface, update_dashboard, create_empty_dashboard
+from evaluation_interface import create_evaluation_interface
 from langchain_openai import ChatOpenAI
 from prompts import borrower_profile_with_decision_types_prompt
 
@@ -741,7 +742,7 @@ def create_app():
                             dashboard_ratios
                         ]
                     )
-            
+
             with gr.Tab("RAG"):
                 with gr.Column():
                     gr.Markdown(
@@ -801,6 +802,11 @@ def create_app():
             }
             </style>
         """)
+
+            # Evaluation Tab
+            with gr.Tab("Model Evaluation"):
+                evaluation_interface = create_evaluation_interface()
+
     
     return app
 
