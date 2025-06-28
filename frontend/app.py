@@ -803,9 +803,9 @@ def create_app():
             </style>
         """)
 
-            # Evaluation Tab
-            with gr.Tab("Model Evaluation"):
-                evaluation_interface = create_evaluation_interface()
+    # comment the evaluation interface for now
+    # with gr.Tab("Model Evaluation"):
+    #         evaluation_interface = create_evaluation_interface()
 
     
     return app
