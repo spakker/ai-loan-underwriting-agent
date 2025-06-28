@@ -1,11 +1,14 @@
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Any
 import json
 import io
 import PyPDF2
 import logging
-import os
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
@@ -15,6 +18,8 @@ from langchain_core.tools import tool
 from pydantic import BaseModel
 from pydantic import SecretStr
 from datetime import datetime
+from backend.calculate_rag import get_risk_policy_context
+from frontend.prompts import rag_policy_summary_prompt
 
 # Load environment variables
 load_dotenv()
@@ -630,7 +635,7 @@ async def analyze_enhanced(files: List[UploadFile] = File(...)):
         llm = ChatOpenAI(
             model="gpt-4o",
             temperature=0.1,
-            api_key=OPENAI_API_KEY
+            api_key=SecretStr(OPENAI_API_KEY) if OPENAI_API_KEY else None
         )
         
         # Create enhanced prompt that uses the tool
@@ -677,7 +682,7 @@ Use the tool to calculate the metrics and then provide your professional analysi
         llm_response = enhanced_chain.invoke({"financial_data": json.dumps(data, indent=2)})
         
         # Calculate risk metrics using the tool directly for comparison
-        risk_result = calculate_risk_metrics(data)
+        risk_result = calculate_risk_metrics.invoke({"data": data})
         
         return {
             "llm_analysis": llm_response.content,
@@ -708,7 +713,7 @@ async def analyze_automated(files: List[UploadFile] = File(...)):
         llm = ChatOpenAI(
             model="gpt-4o",
             temperature=0.1,
-            api_key=OPENAI_API_KEY
+            api_key=SecretStr(OPENAI_API_KEY) if OPENAI_API_KEY else None
         )
         
         # Create automated decision prompt
@@ -745,13 +750,14 @@ Use the tool and provide your decision in the exact JSON format above.
         decision_response = decision_chain.invoke({"financial_data": json.dumps(data, indent=2)})
         
         # Calculate risk metrics for reference
-        risk_result = calculate_risk_metrics(data)
+        risk_result = calculate_risk_metrics.invoke({"data": data})
         
         # Try to parse the decision from LLM response
         try:
             # Extract JSON from the response if it's wrapped in text
             import re
-            json_match = re.search(r'\{.*\}', decision_response.content, re.DOTALL)
+            content = str(decision_response.content) if decision_response.content else ""
+            json_match = re.search(r'\{.*\}', content, re.DOTALL)
             if json_match:
                 decision_data = json.loads(json_match.group())
             else:
@@ -778,7 +784,7 @@ async def calculate_risk_endpoint(data: Dict):
     """Direct endpoint to calculate risk metrics from financial data"""
     try:
         # Calculate risk metrics using the tool (includes data cleaning)
-        result = calculate_risk_metrics(data)
+        result = calculate_risk_metrics.invoke({"data": data})
         
         return result
         
@@ -787,6 +793,70 @@ async def calculate_risk_endpoint(data: Dict):
     except Exception as e:
         logger.error(f"Error in calculate_risk_endpoint: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+@tool
+def get_policy_summary(data: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    """Get a comprehensive summary of all mortgage underwriting policy requirements.
+    
+    This tool retrieves and analyzes policy requirements for conventional mortgage loans,
+    including DTI ratios, LTV limits, credit score requirements, and down payment rules.
+    It returns a structured summary with specific thresholds and guidelines.
+    
+    Args:
+        data: Optional dictionary of parameters (not used, but required for tool interface)
+        
+    Returns:
+        Dict containing:
+        - key_ratio_summary: Quick reference of important thresholds
+        - dti_requirements: Detailed DTI ratio requirements
+        - ltv_requirements: LTV limits for different scenarios
+        - credit_score_requirements: Credit score rules and tiers
+        - down_payment_requirements: Down payment rules and documentation
+        - property_requirements: Property eligibility criteria
+        - income_documentation: Income verification requirements
+        - special_programs: Available special mortgage programs
+    """
+    # Get policy context for each metric
+    dti_context = get_risk_policy_context("dti_ratio")
+    ltv_context = get_risk_policy_context("ltv_ratio")
+    credit_context = get_risk_policy_context("credit_score")
+    down_payment_context = get_risk_policy_context("down_payment")
+    
+    # Create LLM instance
+    llm = ChatOpenAI(
+        model="gpt-4",
+        temperature=0
+    )
+    
+    # Prepare the context
+    context_data = {
+        "dti_policy": "\n".join(doc.page_content for doc in dti_context),
+        "ltv_policy": "\n".join(doc.page_content for doc in ltv_context),
+        "credit_policy": "\n".join(doc.page_content for doc in credit_context),
+        "down_payment_policy": "\n".join(doc.page_content for doc in down_payment_context)
+    }
+    
+    # Create and run the chain with JSON parser
+    parser = JsonOutputParser()
+    chain = rag_policy_summary_prompt | llm | parser
+    return chain.invoke(context_data)
+
+@app.get("/policy-summary")
+async def get_mortgage_policy_summary():
+    """Get a comprehensive summary of mortgage underwriting policy requirements."""
+    try:
+        # Call the get_policy_summary tool
+        policy_summary = get_policy_summary.invoke({})
+        
+        return {
+            "status": "success",
+            "policy_summary": policy_summary,
+            "timestamp": str(datetime.now())
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting policy summary: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error retrieving policy summary: {str(e)}")
 
 @app.on_event("startup")
 async def startup_event():
