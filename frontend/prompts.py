@@ -302,7 +302,7 @@ borrower_profile_with_decision_types_prompt = ChatPromptTemplate.from_template("
 
 # Add new prompt for RAG policy context summary
 rag_policy_summary_prompt = ChatPromptTemplate.from_template("""
-You are a mortgage loan underwriting assistant specializing in Fannie Mae and Freddie Mac conventional loan requirements. Based on the retrieved policy context, analyze and structure the mortgage underwriting requirements into a clear JSON format.
+You are a mortgage loan underwriting assistant specializing in Fannie Mae and Freddie Mac conventional loan requirements. Your task is to analyze the retrieved policy context and create a clear, well-organized summary of the mortgage underwriting requirements.
 
 Retrieved Policy Context:
 
@@ -318,129 +318,37 @@ Credit Score Requirements:
 Down Payment Requirements:
 {down_payment_policy}
 
-Return a JSON object in exactly this format:
-{
-  "key_ratio_summary": {
-    "dti_ratios": [
-      "Front-end DTI target: X% (housing payment / monthly income)",
-      "Back-end DTI maximum: Y% (total debts / monthly income)",
-      "DTI exceptions with compensating factors: up to Z%"
-    ],
-    "ltv_ratios": [
-      "Standard purchase LTV maximum: X%",
-      "Rate/term refinance LTV limit: Y%",
-      "Cash-out refinance LTV limit: Z%",
-      "LTV threshold requiring PMI: >X%"
-    ],
-    "credit_thresholds": [
-      "Minimum required score: X",
-      "Preferred score for best rates: Y",
-      "Score ranges and their implications: X-Y (excellent), Y-Z (good), etc."
-    ],
-    "down_payment_thresholds": [
-      "Minimum down payment: X%",
-      "Preferred down payment to avoid PMI: Y%",
-      "Required reserves: Z months PITI"
-    ]
-  },
-  "dti_requirements": {
-    "front_end_ratio": [
-      "Housing expense ratio requirements (PITI)",
-      "Maximum allowable percentage",
-      "What's included in calculation"
-    ],
-    "back_end_ratio": [
-      "Total debt ratio requirements",
-      "Maximum allowable percentage",
-      "Which debts are counted"
-    ],
-    "compensating_factors": [
-      "Factors that allow higher DTI ratios",
-      "Maximum DTI with compensating factors"
-    ]
-  },
-  "ltv_requirements": {
-    "conventional_limits": [
-      "Standard LTV limits for primary residence",
-      "LTV limits for different loan purposes (purchase, refi, cash-out)"
-    ],
-    "property_type_limits": {
-      "single_family": ["LTV limits for single-family homes"],
-      "multi_family": ["LTV limits for 2-4 unit properties"],
-      "condo": ["LTV limits for condominiums"],
-      "manufactured": ["LTV limits for manufactured homes"]
-    },
-    "mortgage_insurance": [
-      "When MI is required",
-      "LTV thresholds for MI"
-    ]
-  },
-  "credit_score_requirements": {
-    "minimum_scores": [
-      "Absolute minimum required score",
-      "Preferred minimum score"
-    ],
-    "score_tiers": [
-      "Credit score ranges and their implications",
-      "Impact on pricing and terms"
-    ],
-    "credit_history": [
-      "Required credit history length",
-      "Treatment of collections/late payments",
-      "Bankruptcy/foreclosure waiting periods"
-    ]
-  },
-  "down_payment_requirements": {
-    "minimum_requirements": [
-      "Minimum down payment percentage",
-      "Requirements by property type",
-      "Requirements by loan type"
-    ],
-    "acceptable_sources": [
-      "Eligible down payment sources",
-      "Gift funds policies",
-      "Reserve requirements"
-    ],
-    "documentation_required": [
-      "Source of funds documentation",
-      "Seasoning requirements",
-      "Gift documentation requirements"
-    ]
-  },
-  "property_requirements": {
-    "eligible_properties": [
-      "Acceptable property types",
-      "Property condition requirements"
-    ],
-    "appraisal_requirements": [
-      "When appraisals are required",
-      "Appraisal type requirements"
-    ]
-  },
-  "income_documentation": {
-    "employment_requirements": [
-      "Employment history requirements",
-      "Self-employment documentation"
-    ],
-    "income_verification": [
-      "Required income documentation",
-      "Income calculation methods"
-    ]
-  },
-  "special_programs": [
-    "First-time homebuyer options",
-    "Low down payment programs",
-    "Other special mortgage programs"
-  ]
-}
+Create a comprehensive summary of the mortgage underwriting requirements. For each policy point you mention, cite the source document and relevant section. Format your response in these sections:
 
-Rules:
-1. Extract only factual mortgage requirements from the provided policy context
-2. Do not invent or assume requirements not present in the context
-3. Use clear, specific language relevant to mortgage underwriting
-4. If a section has no relevant information in the context, include an empty list
-5. Format all lists consistently
-6. Include specific numeric thresholds and requirements where provided
-7. For the key_ratio_summary section, replace X, Y, Z with actual numbers from the policy
-8. Return only the JSON object, no additional text
+1. Key Ratio Requirements
+   - DTI (Front-end and Back-end) limits and thresholds
+   - LTV limits for different scenarios
+   - Credit score minimums and tiers
+   - Down payment requirements
+
+2. Detailed Policy Guidelines
+   - Income and Employment Requirements
+   - Property Eligibility Criteria
+   - Documentation Requirements
+   - Special Circumstances and Exceptions
+
+3. Special Programs and Flexibilities
+   - First-time homebuyer options
+   - Low down payment programs
+   - Other available flexibilities
+
+Guidelines:
+1. Use clear, specific language relevant to mortgage underwriting
+2. For each requirement, cite the source document and section
+3. Present information in a logical, hierarchical structure
+4. Highlight any recent updates or changes to policies
+5. Note any variations for different loan types or scenarios
+6. Include specific numeric thresholds where available
+7. Format citations as [Source Document - Section Name]
+
+Remember:
+- Only include information that is explicitly present in the provided context
+- Do not make assumptions or include requirements not found in the source material
+- Be precise with numbers, percentages, and thresholds
+- Clearly indicate when different requirements apply to different scenarios
 """)

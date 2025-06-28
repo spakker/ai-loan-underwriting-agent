@@ -446,7 +446,129 @@ def create_upload_interface():
     
     return upload
 
-# Create the main application with routes
+def fetch_policy_summary():
+    """Fetch policy summary from the backend API."""
+    print("Fetching policy summary from backend...")
+    try:
+        response = requests.get("http://localhost:8000/policy-summary")
+        print(f"Backend response status: {response.status_code}")
+        if response.status_code == 200:
+            data = response.json()["policy_summary"]
+            print(f"Successfully received policy summary: {json.dumps(data, indent=2)}")
+            return data
+        else:
+            error_msg = {
+                "error": f"Failed to fetch policy summary: {response.text}"
+            }
+            print(f"Error fetching policy summary: {error_msg}")
+            return error_msg
+    except Exception as e:
+        error_msg = {
+            "error": f"Error fetching policy summary: {str(e)}"
+        }
+        print(f"Exception while fetching policy summary: {error_msg}")
+        return error_msg
+
+def create_policy_summary_html(policy_data):
+    """Create HTML representation of the policy summary."""
+    print(f"Creating HTML for policy data type: {type(policy_data)}")
+    
+    if isinstance(policy_data, dict) and "error" in policy_data:
+        return f"""
+        <div style="background: #fef2f2; padding: 20px; border-radius: 10px; margin: 20px 0;">
+            <h3 style="color: #dc2626;">Error</h3>
+            <p>{policy_data['error']}</p>
+        </div>
+        """
+    
+    # Convert to string if needed
+    if isinstance(policy_data, dict):
+        policy_text = json.dumps(policy_data, indent=2)
+    else:
+        policy_text = str(policy_data)
+    
+    print(f"Processing policy text: {policy_text[:200]}...")
+    
+    html = """
+    <div style="max-width: 1200px; margin: 0 auto; font-family: system-ui, -apple-system, sans-serif;">
+        <div style="background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px;">
+    """
+    
+    # Process the text line by line
+    lines = policy_text.split("\n")
+    in_list = False
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            if in_list:
+                html += "</ul>"
+                in_list = False
+            continue
+        
+        # Handle section headers (numbered sections)
+        if line.startswith(("1.", "2.", "3.")):
+            if in_list:
+                html += "</ul>"
+                in_list = False
+            html += f"""
+            </div>
+            <div style="background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px;">
+                <h3 style="color: #2B3674; margin-bottom: 15px;">{line}</h3>
+            """
+        
+        # Handle bullet points
+        elif line.startswith(("-", "•")):
+            if not in_list:
+                html += "<ul style='list-style-type: none; padding-left: 0; margin-top: 10px;'>"
+                in_list = True
+            
+            # Process the line content (remove bullet and handle citations)
+            content = line.lstrip("- •").strip()
+            if "[" in content and "]" in content:
+                # Split by citations and reassemble with styling
+                parts = content.split("[")
+                html += f"<li style='margin-bottom: 12px; color: #475569;'>• {parts[0]}"
+                for part in parts[1:]:
+                    if "]" in part:
+                        citation, rest = part.split("]", 1)
+                        html += f"<span style='color: #4B5563; font-style: italic;'>[{citation}]</span>{rest}"
+                    else:
+                        html += part
+                html += "</li>"
+            else:
+                html += f"<li style='margin-bottom: 12px; color: #475569;'>• {content}</li>"
+        
+        # Handle regular text
+        else:
+            if in_list:
+                html += "</ul>"
+                in_list = False
+            
+            if "[" in line and "]" in line:
+                # Split by citations and reassemble with styling
+                parts = line.split("[")
+                html += f"<p style='margin-bottom: 12px; color: #475569;'>{parts[0]}"
+                for part in parts[1:]:
+                    if "]" in part:
+                        citation, rest = part.split("]", 1)
+                        html += f"<span style='color: #4B5563; font-style: italic;'>[{citation}]</span>{rest}"
+                    else:
+                        html += part
+                html += "</p>"
+            else:
+                html += f"<p style='margin-bottom: 12px; color: #475569;'>{line}</p>"
+    
+    if in_list:
+        html += "</ul>"
+    
+    html += """
+        </div>
+    </div>
+    """
+    
+    return html
+
 def create_app():
     with gr.Blocks(title="Agnetic Loan Application") as app:
         # Shared state between tabs
@@ -496,30 +618,6 @@ def create_app():
                         """)
                         with gr.Group(elem_classes=["custom-box-content"]):
                             text_output = gr.Markdown()
-                
-                # Add custom CSS
-                gr.HTML("""
-                    <style>
-                    .header-text {
-                        margin: 20px 0;
-                        color: #2B3674;
-                        font-size: 1.1em;
-                    }
-                    .custom-box {
-                        background: white;
-                        padding: 20px;
-                        border-radius: 10px 10px 0 0;
-                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                    }
-                    .custom-box-content {
-                        background: white;
-                        padding: 20px;
-                        border-radius: 0 0 10px 10px;
-                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                        margin-top: -10px;
-                    }
-                    </style>
-                """)
                 
                 # Components to update the dashboard
                 borrower_output = gr.HTML(visible=False)
@@ -643,6 +741,66 @@ def create_app():
                             dashboard_ratios
                         ]
                     )
+            
+            with gr.Tab("RAG"):
+                with gr.Column():
+                    gr.Markdown(
+                        """
+                        ## Policy Requirements
+                        Comprehensive overview of mortgage underwriting policy requirements.
+                        """,
+                        elem_classes=["header-text"]
+                    )
+                    
+                    # Add refresh button
+                    refresh_btn = gr.Button("🔄 Refresh Policy Summary", variant="secondary")
+                    
+                    # Add policy summary container
+                    policy_summary = gr.HTML()
+                    
+                    # Function to update policy summary
+                    def update_policy_summary():
+                        print("\n=== Updating Policy Summary ===")
+                        data = fetch_policy_summary()
+                        html = create_policy_summary_html(data)
+                        print("=== Finished Updating Policy Summary ===\n")
+                        return html
+                    
+                    # Set up click event for refresh button
+                    refresh_btn.click(
+                        fn=update_policy_summary,
+                        inputs=[],
+                        outputs=[policy_summary]
+                    )
+                    
+                    # Initial load of policy summary
+                    print("\n=== Initial Policy Summary Load ===")
+                    policy_summary.value = update_policy_summary()
+                    print("=== Finished Initial Load ===\n")
+        
+        # Add custom CSS
+        gr.HTML("""
+            <style>
+            .header-text {
+                margin: 20px 0;
+                color: #2B3674;
+                font-size: 1.1em;
+            }
+            .custom-box {
+                background: white;
+                padding: 20px;
+                border-radius: 10px 10px 0 0;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+            .custom-box-content {
+                background: white;
+                padding: 20px;
+                border-radius: 0 0 10px 10px;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                margin-top: -10px;
+            }
+            </style>
+        """)
     
     return app
 

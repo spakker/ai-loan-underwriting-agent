@@ -795,64 +795,93 @@ async def calculate_risk_endpoint(data: Dict):
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @tool
-def get_policy_summary(data: Dict[str, Any] | None = None) -> Dict[str, Any]:
+def get_policy_summary(data: Dict[str, Any] | None = None) -> str:
     """Get a comprehensive summary of all mortgage underwriting policy requirements.
     
     This tool retrieves and analyzes policy requirements for conventional mortgage loans,
     including DTI ratios, LTV limits, credit score requirements, and down payment rules.
-    It returns a structured summary with specific thresholds and guidelines.
+    It returns a narrative summary with source citations.
     
     Args:
         data: Optional dictionary of parameters (not used, but required for tool interface)
         
     Returns:
-        Dict containing:
-        - key_ratio_summary: Quick reference of important thresholds
-        - dti_requirements: Detailed DTI ratio requirements
-        - ltv_requirements: LTV limits for different scenarios
-        - credit_score_requirements: Credit score rules and tiers
-        - down_payment_requirements: Down payment rules and documentation
-        - property_requirements: Property eligibility criteria
-        - income_documentation: Income verification requirements
-        - special_programs: Available special mortgage programs
+        str: A formatted narrative summary of policy requirements with source citations
     """
-    # Get policy context for each metric
-    dti_context = get_risk_policy_context("dti_ratio")
-    ltv_context = get_risk_policy_context("ltv_ratio")
-    credit_context = get_risk_policy_context("credit_score")
-    down_payment_context = get_risk_policy_context("down_payment")
-    
-    # Create LLM instance
-    llm = ChatOpenAI(
-        model="gpt-4",
-        temperature=0
-    )
-    
-    # Prepare the context
-    context_data = {
-        "dti_policy": "\n".join(doc.page_content for doc in dti_context),
-        "ltv_policy": "\n".join(doc.page_content for doc in ltv_context),
-        "credit_policy": "\n".join(doc.page_content for doc in credit_context),
-        "down_payment_policy": "\n".join(doc.page_content for doc in down_payment_context)
-    }
-    
-    # Create and run the chain with JSON parser
-    parser = JsonOutputParser()
-    chain = rag_policy_summary_prompt | llm | parser
-    return chain.invoke(context_data)
+    logger.info("Starting get_policy_summary function")
+    try:
+        # Get policy context for each metric
+        logger.info("Retrieving policy contexts...")
+        dti_context = get_risk_policy_context("dti_ratio")
+        logger.info(f"DTI context retrieved: {len(dti_context)} documents")
+        
+        ltv_context = get_risk_policy_context("ltv_ratio")
+        logger.info(f"LTV context retrieved: {len(ltv_context)} documents")
+        
+        credit_context = get_risk_policy_context("credit_score")
+        logger.info(f"Credit context retrieved: {len(credit_context)} documents")
+        
+        down_payment_context = get_risk_policy_context("down_payment")
+        logger.info(f"Down payment context retrieved: {len(down_payment_context)} documents")
+        
+        # Create LLM instance
+        logger.info("Creating LLM instance...")
+        llm = ChatOpenAI(
+            model="gpt-4",
+            temperature=0
+        )
+        
+        # Prepare the context
+        logger.info("Preparing context data...")
+        context_data = {
+            "dti_policy": "\n".join(f"{doc.page_content} [Source: {doc.metadata.get('source', 'Unknown')} - Page {doc.metadata.get('page', 'Unknown')}]" for doc in dti_context),
+            "ltv_policy": "\n".join(f"{doc.page_content} [Source: {doc.metadata.get('source', 'Unknown')} - Page {doc.metadata.get('page', 'Unknown')}]" for doc in ltv_context),
+            "credit_policy": "\n".join(f"{doc.page_content} [Source: {doc.metadata.get('source', 'Unknown')} - Page {doc.metadata.get('page', 'Unknown')}]" for doc in credit_context),
+            "down_payment_policy": "\n".join(f"{doc.page_content} [Source: {doc.metadata.get('source', 'Unknown')} - Page {doc.metadata.get('page', 'Unknown')}]" for doc in down_payment_context)
+        }
+        
+        # Log context data lengths
+        for key, value in context_data.items():
+            logger.info(f"{key} length: {len(value)} characters")
+            logger.debug(f"{key} content: {value[:200]}...")
+        
+        # Create and run the chain
+        logger.info("Creating chain...")
+        chain = (
+            RunnablePassthrough() | 
+            rag_policy_summary_prompt | 
+            llm |
+            (lambda x: x.content if hasattr(x, 'content') else str(x))
+        )
+        
+        logger.info("Invoking chain...")
+        result = chain.invoke(context_data)
+        logger.info(f"Chain result type: {type(result)}")
+        logger.info(f"Chain result: {result[:500]}...")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error in get_policy_summary: {str(e)}", exc_info=True)
+        raise
 
 @app.get("/policy-summary")
 async def get_mortgage_policy_summary():
     """Get a comprehensive summary of mortgage underwriting policy requirements."""
     try:
+        logger.info("Starting get_mortgage_policy_summary endpoint")
+        
         # Call the get_policy_summary tool
         policy_summary = get_policy_summary.invoke({})
+        logger.info(f"Policy summary retrieved: {policy_summary[:500]}...")
         
-        return {
+        response = {
             "status": "success",
             "policy_summary": policy_summary,
             "timestamp": str(datetime.now())
         }
+        logger.info("Successfully prepared response")
+        return response
         
     except Exception as e:
         logger.error(f"Error getting policy summary: {str(e)}", exc_info=True)
