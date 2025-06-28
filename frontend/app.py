@@ -743,7 +743,7 @@ def create_app():
                         ]
                     )
 
-            with gr.Tab("RAG"):
+            with gr.Tab("Reference"):
                 with gr.Column():
                     gr.Markdown(
                         """
