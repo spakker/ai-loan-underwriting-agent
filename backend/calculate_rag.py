@@ -1,7 +1,7 @@
 import os
 from typing import Dict, Any, List
 from langchain.docstore.document import Document
-from backend.test_retrieval import run_retrieval_test
+from backend.rag_retrieval import run_retrieval_test
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
