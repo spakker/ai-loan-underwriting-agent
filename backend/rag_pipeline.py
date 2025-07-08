@@ -239,36 +239,12 @@ def process_and_load_documents(folder_path: str, class_name: str = "PolicyChunks
         logger.error(f"Error in document processing pipeline: {str(e)}", exc_info=True)
         raise
 
-def test_retrieval(query: str, class_name: str = "PolicyChunks", k: int = 5) -> List[Document]:
-    """Test retrieval from the vector store."""
-    logger.info(f"Testing retrieval with query: '{query}'")
-    start_time = time.time()
-    
-    try:
-        vector_store = create_vector_store(class_name)
-        docs = vector_store.similarity_search(query, k=k)
-        
-        logger.info(f"\nFound {len(docs)} relevant documents in {time.time() - start_time:.2f} seconds.")
-        for i, doc in enumerate(docs, 1):
-            logger.info(f"\n--- Result {i} ---")
-            logger.info(f"Source: {doc.metadata.get('source', 'N/A')}")
-            logger.info(f"Page: {doc.metadata.get('page', 'N/A')}")
-            logger.info(f"Content: {doc.page_content[:250]}...")
-        
-        return docs
-        
-    except Exception as e:
-        logger.error(f"Error during retrieval: {str(e)}", exc_info=True)
-        raise
-
 if __name__ == "__main__":
     try:
         logger.info("--- Starting Main Execution ---")
         start_time = time.time()
         docs_path = os.path.join(os.path.dirname(__file__), "..", "policy_docs")
         process_and_load_documents(docs_path)
-        # Example of how to test retrieval
-        # test_retrieval(query="What is the policy on data privacy?")
         logger.info(f"--- Main execution completed successfully in {time.time() - start_time:.2f} seconds ---")
     except Exception as e:
         logger.error(f"Main execution failed: {str(e)}", exc_info=True)
