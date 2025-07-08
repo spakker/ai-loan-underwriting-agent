@@ -7,20 +7,17 @@ from typing import List, Optional, Dict
 from tqdm import tqdm
 from dotenv import load_dotenv
 import weaviate
-from weaviate.util import get_valid_uuid
-from weaviate.classes.config import Configure, Property, DataType
-# FIX: Import the updated WeaviateVectorStore from the new package
+from weaviate.collections import Collection
+from weaviate.collections.classes.config import Configure, Property, DataType
+from docling.document_converter import DocumentConverter
 from langchain_weaviate import WeaviateVectorStore
 from langchain_openai import OpenAIEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.document_loaders import PyPDFLoader
 from langchain.docstore.document import Document
 import pickle
 import hashlib
 from pathlib import Path
 from urllib.parse import urlparse
-import weaviate
-from weaviate.classes.init import Auth
 
 # Configure logging
 logging.basicConfig(
@@ -34,7 +31,7 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 logger.info("Environment variables loaded")
 
-def get_weaviate_client() -> weaviate.Client:
+def get_weaviate_client() -> weaviate.WeaviateClient:
     """Initialize Weaviate client with environment variables."""
     url = os.getenv("WEAVIATE_URL")
     api_key = os.getenv("WEAVIATE_API_KEY")
@@ -47,23 +44,20 @@ def get_weaviate_client() -> weaviate.Client:
         url = f'https://{url}'
     
     parsed_url = urlparse(url)
-    http_host = parsed_url.hostname
-    http_port = parsed_url.port or 443
-    http_secure = parsed_url.scheme == 'https'
-    grpc_port = 50051
-
-    logger.info(f"Connecting to Weaviate at {http_host}:{http_port} (HTTP) and {http_host}:{grpc_port} (gRPC)")
-    weaviate_url = os.getenv("WEAVIATE_URL")
-    weaviate_api_key = os.getenv("WEAVIATE_API_KEY")
-
-    # Connect to Weaviate Cloud
-    client = weaviate.connect_to_weaviate_cloud(
-        cluster_url=weaviate_url,
-        auth_credentials=Auth.api_key(weaviate_api_key),  
-    )
-    print(client.is_ready())  # Should print: `True`
     
-    return client 
+    client = weaviate.connect_to_weaviate_cloud(
+        cluster_url=url,
+        auth_credentials=weaviate.auth.AuthApiKey(api_key),
+        headers={"X-OpenAI-Api-Key": openai_api_key}
+    )
+
+    try:
+        client.get_meta()
+        logger.info("Successfully connected to Weaviate")
+    except Exception as e:
+        raise ConnectionError(f"Failed to connect to Weaviate: {str(e)}")
+    
+    return client
 
 def log_time(start_time: float, operation: str) -> float:
     """Log the time taken for an operation and return current time."""
@@ -79,7 +73,7 @@ def get_cache_path(pdf_path: str) -> Path:
     return cache_dir / f"{pdf_hash}.pickle"
 
 def load_pdf_documents(folder_path: str, use_cache: bool = True) -> List[Document]:
-    """Load PDF documents from a folder and convert them to LangChain documents."""
+    """Load PDF documents from a folder using docling and convert them to LangChain documents."""
     pdf_dir = pathlib.Path(folder_path)
     if not pdf_dir.exists():
         raise ValueError(f"Folder not found: {folder_path}")
@@ -89,6 +83,19 @@ def load_pdf_documents(folder_path: str, use_cache: bool = True) -> List[Documen
     logger.info(f"Found {len(pdf_files)} PDF files")
     
     documents = []
+    converter = DocumentConverter()
+    
+    # Configure environment for Windows symlink handling
+    if os.name == 'nt':  # Windows
+        os.environ['HF_HUB_DISABLE_SYMLINKS_WARNING'] = '1'
+        try:
+            import hf_transfer
+            os.environ['HF_HUB_ENABLE_HF_TRANSFER'] = '1'
+            logger.info("Using hf_transfer for faster downloads")
+        except ImportError:
+            logger.warning("hf_transfer not available, using default download method")
+            os.environ['HF_HUB_ENABLE_HF_TRANSFER'] = '0'
+    
     for pdf_path in pdf_files:
         if not pdf_path.is_file():
             logger.error(f"Path is not a file: {pdf_path}")
@@ -106,25 +113,62 @@ def load_pdf_documents(folder_path: str, use_cache: bool = True) -> List[Documen
         
         logger.info(f"\nProcessing PDF: {pdf_path.name}")
         try:
-            from PyPDF2 import PdfReader
-            pdf = PdfReader(str(pdf_path))
-            doc_pages = []
-            for i, page in enumerate(tqdm(pdf.pages, desc=f"Reading pages from {pdf_path.name}")):
-                text = page.extract_text()
-                if text:
-                    doc_pages.append(Document(page_content=text, metadata={"source": str(pdf_path), "page": i + 1}))
+            # Use docling to convert the PDF
+            result = converter.convert(str(pdf_path))
+            text = result.document.export_to_markdown()
+            
+            # Create a single document with the full text
+            doc = Document(
+                page_content=text,
+                metadata={
+                    "source": str(pdf_path),
+                    "page": 1,  # Single document approach
+                    "total_pages": 1
+                }
+            )
             
             if use_cache:
                 with open(cache_path, 'wb') as f:
-                    pickle.dump(doc_pages, f)
+                    pickle.dump([doc], f)
             
-            documents.extend(doc_pages)
+            documents.append(doc)
             logger.info(f"Successfully processed {pdf_path.name}")
             
         except Exception as e:
             logger.error(f"Error processing {pdf_path.name}: {str(e)}", exc_info=True)
+            # Try alternative method if docling fails
+            try:
+                from PyPDF2 import PdfReader
+                logger.info(f"Falling back to PyPDF2 for {pdf_path.name}")
+                pdf = PdfReader(str(pdf_path))
+                text_parts = []
+                for page in pdf.pages:
+                    try:
+                        page_text = page.extract_text()
+                        if page_text:
+                            text_parts.append(page_text)
+                    except Exception as page_error:
+                        logger.warning(f"Failed to extract text from page in {pdf_path.name}: {str(page_error)}")
+                        continue
+                
+                if text_parts:
+                    text = "\n".join(text_parts)
+                    doc = Document(
+                        page_content=text,
+                        metadata={
+                            "source": str(pdf_path),
+                            "page": 1,
+                            "total_pages": len(pdf.pages)
+                        }
+                    )
+                    documents.append(doc)
+                    logger.info(f"Successfully processed {pdf_path.name} with PyPDF2")
+                else:
+                    logger.warning(f"No text could be extracted from {pdf_path.name}")
+            except Exception as e2:
+                logger.error(f"Both PDF processing methods failed for {pdf_path.name}: {str(e2)}", exc_info=True)
     
-    logger.info(f"\nTotal pages processed: {len(documents)}")
+    logger.info(f"\nTotal documents processed: {len(documents)}")
     return documents
 
 def split_documents(documents: List[Document], chunk_size: int = 400, chunk_overlap: int = 100) -> List[Document]:
@@ -151,20 +195,22 @@ def create_vector_store(class_name: str = "PolicyChunks") -> WeaviateVectorStore
     logger.info("Initializing OpenAI embeddings model")
     embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
     
-    if not client.collections.exists(name=class_name):
+    # Create class schema if it doesn't exist
+    try:
+        client.collections.get(class_name)
+        logger.info(f"Using existing collection: {class_name}")
+    except weaviate.exceptions.UnexpectedStatusCodeException:
         logger.info(f"Creating new collection: {class_name}")
         client.collections.create(
             name=class_name,
             vectorizer_config=Configure.Vectorizer.text2vec_openai(),
             properties=[
-                Property(name="text", data_type=DataType.TEXT, vectorize_property_name=False, skip_vectorization=False),
-                Property(name="source", data_type=DataType.TEXT, skip_vectorization=True),
-                Property(name="page", data_type=DataType.INT, skip_vectorization=True),
+                Property(name="text", data_type=DataType.TEXT),
+                Property(name="source", data_type=DataType.TEXT),
+                Property(name="page", data_type=DataType.INT)
             ]
         )
         logger.info(f"Collection '{class_name}' created successfully.")
-    else:
-        logger.info(f"Using existing collection: {class_name}")
     
     return WeaviateVectorStore(
         client=client,

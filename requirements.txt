@@ -1,0 +1,10 @@
+docling @ git+https://github.com/docling-project/docling.git
+weaviate-client>=3.26.1
+langchain>=0.1.0
+langchain-openai>=0.0.2
+langchain-weaviate>=0.0.1
+python-dotenv>=1.0.0
+tqdm>=4.66.1
+openai>=1.10.0
+hf-transfer>=0.1.4
+PyPDF2>=3.0.0
