@@ -743,7 +743,7 @@ def create_app():
                         ]
                     )
 
-            with gr.Tab("Reference"):
+            with gr.Tab("Reference") as reference_tab:
                 with gr.Column():
                     gr.Markdown(
                         """
@@ -773,11 +773,6 @@ def create_app():
                         inputs=[],
                         outputs=[policy_summary]
                     )
-                    
-                    # Initial load of policy summary
-                    print("\n=== Initial Policy Summary Load ===")
-                    policy_summary.value = update_policy_summary()
-                    print("=== Finished Initial Load ===\n")
         
         # Add custom CSS
         gr.HTML("""

@@ -60,9 +60,9 @@ def get_risk_policy_context(metric_name: str, k: int = 3) -> List[Document]:
 def extract_dti_numerical_data(loan_data: Dict[str, Any]) -> Dict[str, Any]:
     """Extract and parse numerical DTI data from policy documents for specific loan scenarios."""
     # Get detailed DTI context with multiple specialized queries
-    dti_general = get_risk_policy_context("dti_ratio", k=5)
-    dti_detailed = get_risk_policy_context("dti_ratio_detailed", k=5)
-    dti_by_credit = get_risk_policy_context("dti_ratio_by_credit", k=5)
+    dti_general = get_risk_policy_context("dti_ratio", k=10)
+    dti_detailed = get_risk_policy_context("dti_ratio_detailed", k=10)
+    dti_by_credit = get_risk_policy_context("dti_ratio_by_credit", k=10)
     
     # Calculate current DTI ratios
     dti_ratio = calculate_dti_ratio(loan_data["monthly_debt"], loan_data["monthly_income"])
